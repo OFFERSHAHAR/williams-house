@@ -29,16 +29,10 @@
       appId: "46062f6a-d7a8-4714-8765-bac63a2e3bc5",
       safari_web_id: "web.onesignal.auto.1b5ff574-1f63-4acf-ab26-dadb313db610",
 
-      // כפתור הפעמון של OneSignal
-      // הוזז לשמאל למטה ומעט למעלה כדי שלא יכסה כפתורים באפליקציה
+      // הפעמון של OneSignal כבוי לגמרי
+      // ההתראות עצמן עדיין ממשיכות לעבוד למי שכבר אישר הרשאה
       notifyButton: {
-        enable: true,
-        position: "bottom-left",
-        size: "medium",
-        offset: {
-          bottom: "90px",
-          left: "20px"
-        }
+        enable: false
       }
     });
   });
@@ -95,6 +89,17 @@
     50% {
       opacity: 0.55;
     }
+  }
+
+  /* ביטוח נוסף: אם OneSignal בכל זאת מזריק פעמון, להסתיר אותו */
+  .onesignal-bell-container,
+  .onesignal-bell-launcher,
+  .onesignal-slidedown-container,
+  #onesignal-bell-container,
+  #onesignal-slidedown-container {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
   }
 </style>
 </head>
