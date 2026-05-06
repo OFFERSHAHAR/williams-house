@@ -23,29 +23,85 @@
 <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 <script>
   window.OneSignalDeferred = window.OneSignalDeferred || [];
+
   OneSignalDeferred.push(async function(OneSignal) {
     await OneSignal.init({
       appId: "46062f6a-d7a8-4714-8765-bac63a2e3bc5",
       safari_web_id: "web.onesignal.auto.1b5ff574-1f63-4acf-ab26-dadb313db610",
+
+      // כפתור הפעמון של OneSignal
+      // הוזז לשמאל למטה ומעט למעלה כדי שלא יכסה כפתורים באפליקציה
       notifyButton: {
         enable: true,
-      },
+        position: "bottom-left",
+        size: "medium",
+        offset: {
+          bottom: "90px",
+          left: "20px"
+        }
+      }
     });
   });
 </script>
 
 <style>
-  html, body { margin: 0; padding: 0; background: #F5F5F7; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
-  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Heebo', 'Assistant', 'Arial Hebrew', sans-serif; }
-  #root { min-height: 100vh; }
-  #boot { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(180deg,#F5F5F7 0%,#EEF0F3 100%); flex-direction: column; gap: 16px; z-index: 9999; }
-  #boot img { width: 72px; height: 72px; border-radius: 18px; box-shadow: 0 12px 28px rgba(10,132,255,0.3); animation: bp 1.5s ease-in-out infinite; }
-  #boot .label { color: #86868B; font-size: 15px; font-weight: 500; }
-  @keyframes bp { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #F5F5F7;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Heebo', 'Assistant', 'Arial Hebrew', sans-serif;
+  }
+
+  #root {
+    min-height: 100vh;
+  }
+
+  #boot {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(180deg,#F5F5F7 0%,#EEF0F3 100%);
+    flex-direction: column;
+    gap: 16px;
+    z-index: 9999;
+  }
+
+  #boot img {
+    width: 72px;
+    height: 72px;
+    border-radius: 18px;
+    box-shadow: 0 12px 28px rgba(10,132,255,0.3);
+    animation: bp 1.5s ease-in-out infinite;
+  }
+
+  #boot .label {
+    color: #86868B;
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  @keyframes bp {
+    0%,100% {
+      opacity: 1;
+    }
+
+    50% {
+      opacity: 0.55;
+    }
+  }
 </style>
 </head>
+
 <body>
 <div id="root"></div>
+
 <div id="boot">
   <img src="/icon-192.png" alt="בית ויליאמס">
   <div class="label">טוען...</div>
@@ -62,16 +118,23 @@
 (function () {
   function mount() {
     if (!window.WilliamsApp || !window.WilliamsApp.React || !window.WilliamsApp.ReactDOM) {
-      setTimeout(mount, 50); return;
+      setTimeout(mount, 50);
+      return;
     }
+
     var boot = document.getElementById('boot');
-    if (boot && boot.parentNode) boot.parentNode.removeChild(boot);
+    if (boot && boot.parentNode) {
+      boot.parentNode.removeChild(boot);
+    }
+
     var R = window.WilliamsApp.React;
     var RD = window.WilliamsApp.ReactDOM;
     var App = window.WilliamsApp.App;
+
     var root = RD.createRoot(document.getElementById('root'));
     root.render(R.createElement(App));
   }
+
   mount();
 })();
 </script>
