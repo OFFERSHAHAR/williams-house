@@ -29,15 +29,26 @@
       appId: "46062f6a-d7a8-4714-8765-bac63a2e3bc5",
       safari_web_id: "web.onesignal.auto.1b5ff574-1f63-4acf-ab26-dadb313db610",
 
-      // הפעמון הרשמי של OneSignal פעיל, קטן, ובצד שמאל גבוה יחסית
-      // לא נוגע באפליקציה עצמה ולא ב-bundle.js
+      // פעמון רשמי של OneSignal בלבד.
+      // לא נוגע ב-bundle.js ולא מוסיף שכבות מעל האפליקציה.
       notifyButton: {
         enable: true,
-        position: "bottom-left",
         size: "small",
+        theme: "default",
+        position: "bottom-left",
         offset: {
           bottom: "150px",
           left: "16px"
+        },
+        showCredit: false,
+        text: {
+          "tip.state.unsubscribed": "הפעל התראות",
+          "tip.state.subscribed": "התראות פעילות",
+          "tip.state.blocked": "התראות חסומות",
+          "message.prenotify": "לחץ להפעלת התראות",
+          "message.action.subscribed": "התראות הופעלו",
+          "message.action.resubscribed": "התראות הופעלו מחדש",
+          "message.action.unsubscribed": "התראות כובו"
         }
       }
     });
