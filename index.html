@@ -29,12 +29,85 @@
       appId: "46062f6a-d7a8-4714-8765-bac63a2e3bc5",
       safari_web_id: "web.onesignal.auto.1b5ff574-1f63-4acf-ab26-dadb313db610",
 
-      // מכבים את הפעמון הצף כדי שלא יישב על כפתורים
+      // הפעמון הצף של OneSignal כבוי לגמרי.
+      // במקום זה יש לנו כפתור נקי משלנו במסך הכניסה בלבד.
       notifyButton: {
         enable: false
       }
     });
   });
+
+  window.requestWilliamsPush = async function() {
+    return new Promise(function(resolve) {
+      window.OneSignalDeferred = window.OneSignalDeferred || [];
+
+      window.OneSignalDeferred.push(async function(OneSignal) {
+        try {
+          if (!("Notification" in window)) {
+            resolve({
+              ok: false,
+              status: "unsupported"
+            });
+            return;
+          }
+
+          if (Notification.permission === "granted") {
+            try {
+              if (
+                OneSignal.User &&
+                OneSignal.User.PushSubscription &&
+                OneSignal.User.PushSubscription.optIn
+              ) {
+                await OneSignal.User.PushSubscription.optIn();
+              }
+            } catch (e) {
+              console.warn("OneSignal optIn warning:", e);
+            }
+
+            resolve({
+              ok: true,
+              status: "granted"
+            });
+            return;
+          }
+
+          await OneSignal.Notifications.requestPermission();
+
+          if (Notification.permission === "granted") {
+            try {
+              if (
+                OneSignal.User &&
+                OneSignal.User.PushSubscription &&
+                OneSignal.User.PushSubscription.optIn
+              ) {
+                await OneSignal.User.PushSubscription.optIn();
+              }
+            } catch (e) {
+              console.warn("OneSignal optIn warning:", e);
+            }
+
+            resolve({
+              ok: true,
+              status: "granted"
+            });
+            return;
+          }
+
+          resolve({
+            ok: false,
+            status: Notification.permission
+          });
+        } catch (err) {
+          console.error("Push permission error:", err);
+
+          resolve({
+            ok: false,
+            status: "error"
+          });
+        }
+      });
+    });
+  };
 </script>
 
 <style>
@@ -90,12 +163,54 @@
     }
   }
 
+  /* מסתיר רק את הפעמון הצף, לא את בקשת ההרשאה */
   .onesignal-bell-container,
   .onesignal-bell-launcher,
   #onesignal-bell-container {
     display: none !important;
     visibility: hidden !important;
     pointer-events: none !important;
+  }
+
+  #williamsPushLoginBox {
+    position: fixed;
+    left: 50%;
+    bottom: max(22px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 10000;
+    display: none;
+    width: calc(100% - 40px);
+    max-width: 360px;
+    pointer-events: none;
+  }
+
+  #williamsPushLoginButton {
+    width: 100%;
+    border: none;
+    border-radius: 18px;
+    padding: 14px 18px;
+    font-size: 16px;
+    font-weight: 800;
+    font-family: inherit;
+    cursor: pointer;
+    color: #FFFFFF;
+    background: linear-gradient(135deg, #0A84FF 0%, #0066CC 100%);
+    box-shadow: 0 14px 32px rgba(10, 132, 255, 0.32);
+    pointer-events: auto;
+  }
+
+  #williamsPushLoginButton.is-active {
+    color: #0B5F2A;
+    background: linear-gradient(135deg, #E8F8EF 0%, #D7F3E2 100%);
+    box-shadow: 0 10px 24px rgba(52, 199, 89, 0.20);
+    cursor: default;
+  }
+
+  #williamsPushLoginButton.is-blocked {
+    color: #7A1D1D;
+    background: linear-gradient(135deg, #FFECEC 0%, #FFDADA 100%);
+    box-shadow: 0 10px 24px rgba(255, 59, 48, 0.16);
+    cursor: default;
   }
 </style>
 </head>
@@ -106,6 +221,12 @@
 <div id="boot">
   <img src="/icon-192.png" alt="בית ויליאמס">
   <div class="label">טוען...</div>
+</div>
+
+<div id="williamsPushLoginBox">
+  <button id="williamsPushLoginButton" type="button">
+    🔔 הפעל התראות
+  </button>
 </div>
 
 <script>
@@ -137,6 +258,142 @@
   }
 
   mount();
+})();
+</script>
+
+<script>
+(function () {
+  var box = null;
+  var button = null;
+  var lastVisibleState = null;
+
+  function getPermissionStatus() {
+    if (!("Notification" in window)) return "unsupported";
+    return Notification.permission;
+  }
+
+  function isLoginScreen() {
+    var passwordInput = document.querySelector('input[type="password"]');
+
+    if (!passwordInput) {
+      return false;
+    }
+
+    var bodyText = document.body ? document.body.innerText || "" : "";
+
+    var hasLoginText =
+      bodyText.indexOf("כניסה") !== -1 ||
+      bodyText.indexOf("התחברות") !== -1 ||
+      bodyText.indexOf("סיסמה") !== -1 ||
+      bodyText.indexOf("שם משתמש") !== -1;
+
+    var hasLoggedInText =
+      bodyText.indexOf("התנתק") !== -1 ||
+      bodyText.indexOf("תחזוקה") !== -1 ||
+      bodyText.indexOf("משימות") !== -1 ||
+      bodyText.indexOf("ניקיון") !== -1 ||
+      bodyText.indexOf("בריכה") !== -1;
+
+    return hasLoginText && !hasLoggedInText;
+  }
+
+  function updateButtonText() {
+    if (!button) return;
+
+    button.classList.remove("is-active");
+    button.classList.remove("is-blocked");
+    button.disabled = false;
+
+    var status = getPermissionStatus();
+
+    if (status === "granted") {
+      button.textContent = "התראות פעילות ✅";
+      button.classList.add("is-active");
+      button.disabled = true;
+      return;
+    }
+
+    if (status === "denied") {
+      button.textContent = "התראות חסומות בדפדפן";
+      button.classList.add("is-blocked");
+      button.disabled = true;
+      return;
+    }
+
+    if (status === "unsupported") {
+      button.textContent = "הדפדפן לא תומך בהתראות";
+      button.classList.add("is-blocked");
+      button.disabled = true;
+      return;
+    }
+
+    button.textContent = "🔔 הפעל התראות";
+  }
+
+  function syncVisibility() {
+    if (!box || !button) return;
+
+    var shouldShow = isLoginScreen();
+
+    if (lastVisibleState !== shouldShow) {
+      box.style.display = shouldShow ? "block" : "none";
+      lastVisibleState = shouldShow;
+    }
+
+    if (shouldShow) {
+      updateButtonText();
+    }
+  }
+
+  function initLoginPushButton() {
+    box = document.getElementById("williamsPushLoginBox");
+    button = document.getElementById("williamsPushLoginButton");
+
+    if (!box || !button) return;
+
+    button.addEventListener("click", async function () {
+      var currentStatus = getPermissionStatus();
+
+      if (currentStatus === "granted" || currentStatus === "denied") {
+        updateButtonText();
+        return;
+      }
+
+      button.disabled = true;
+      button.textContent = "מבקש הרשאה...";
+
+      var result = await window.requestWilliamsPush();
+
+      if (result && result.ok) {
+        button.textContent = "התראות פעילות ✅";
+        button.classList.add("is-active");
+        button.disabled = true;
+      } else {
+        button.disabled = false;
+        updateButtonText();
+      }
+    });
+
+    syncVisibility();
+
+    var observer = new MutationObserver(function () {
+      syncVisibility();
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+
+    setInterval(syncVisibility, 1500);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initLoginPushButton);
+  } else {
+    initLoginPushButton();
+  }
 })();
 </script>
 </body>
