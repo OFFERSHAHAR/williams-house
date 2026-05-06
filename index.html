@@ -20,6 +20,7 @@
 <link rel="apple-touch-icon" sizes="512x512" href="/icon-512.png">
 <link rel="manifest" href="/manifest.json">
 
+<!-- ONESIGNAL_BELL_RESTORED_TRUE -->
 <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 <script>
   window.OneSignalDeferred = window.OneSignalDeferred || [];
@@ -28,8 +29,6 @@
     await OneSignal.init({
       appId: "46062f6a-d7a8-4714-8765-bac63a2e3bc5",
       safari_web_id: "web.onesignal.auto.1b5ff574-1f63-4acf-ab26-dadb313db610",
-
-      // כפתור OneSignal המקורי, בלי שינויי מיקום ובלי כפתור מותאם
       notifyButton: {
         enable: true
       }
@@ -101,7 +100,6 @@
 </div>
 
 <script>
-  // Hard-coded API URL pointing to your Apps Script Web App
   window.WILLIAMS_API_URL = "https://script.google.com/macros/s/AKfycbxy-EfXnjrmv74gVzYzXOi0o75ypc9pCkmFwlSPsiXvVzWM6KLdFgi6O-spgP8cEn7L/exec";
 </script>
 
