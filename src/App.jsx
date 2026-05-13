@@ -24,7 +24,7 @@ const roleLabels = {
 const tabSets = {
   admin: ["dashboard", "turnovers", "maintenance", "shopping", "hours", "notifications", "pool"],
   bookings: ["turnovers", "notifications"],
-  maint: ["maintenance", "hours", "pool", "shopping"],
+  maint: ["maintenance", "hours", "pool", "shopping", "notifications"],
   house: ["turnovers", "shopping", "hours", "notifications"]
 };
 
@@ -1175,15 +1175,28 @@ function MaintenancePanel({ rows, turnovers, saving, user, actions }) {
   const submit = async (event) => {
     event.preventDefault();
     if (!form.title.trim()) return;
+    const createdAt = nowIso();
+    const title = form.title.trim();
+    const creator = user.display || user.username;
     await actions.add(TABLES.maintenance, {
       id: newId(),
       ...form,
-      title: form.title.trim(),
+      title,
       status: "open",
       source: user.role,
-      createdByName: user.display || user.username,
-      createdAt: nowIso(),
+      createdByName: creator,
+      createdAt,
       completedAt: ""
+    });
+    await actions.add(TABLES.notifications, {
+      id: newId(),
+      for: "maint",
+      room: "משימת אחזקה",
+      date: today(),
+      message: `${creator} יצר/ה משימת אחזקה: ${title}${form.location ? ` · ${form.location}` : ""}${form.urgency ? ` · ${form.urgency}` : ""}`,
+      read: false,
+      createdAt,
+      pushSent: ""
     });
     setForm({ title: "", description: "", location: "", dueDate: "", urgency: "רגיל" });
   };
@@ -1276,16 +1289,29 @@ function ShoppingPanel({ rows, saving, user, users, actions }) {
   const submit = async (event) => {
     event.preventDefault();
     if (!form.item.trim()) return;
+    const requestedAt = nowIso();
+    const creator = user.display || user.username;
+    const item = form.item.trim();
     await actions.add(TABLES.shopping, {
       id: newId(),
       ...form,
-      item: form.item.trim(),
-      requestedBy: user.display || user.username,
+      item,
+      requestedBy: creator,
       requestedById: user.username,
       requestedByRole: user.role,
       status: "requested",
-      requestedAt: nowIso(),
+      requestedAt,
       purchasedAt: ""
+    });
+    await actions.add(TABLES.notifications, {
+      id: newId(),
+      for: "admin",
+      room: "קניות",
+      date: today(),
+      message: `${creator} יצר/ה בקשת קנייה: ${item} · כמות ${form.quantity || 1}${form.category ? ` · ${form.category}` : ""}${form.note ? ` · ${form.note}` : ""}`,
+      read: false,
+      createdAt: requestedAt,
+      pushSent: ""
     });
     setForm({ item: "", quantity: 1, note: "", category: "" });
   };
@@ -1486,40 +1512,61 @@ function NotificationsPanel({ rows, turnovers, user, actions }) {
   const readyRooms = turnovers
     .filter((row) => isDone(row) && !hiddenReadyRooms.includes(row.id))
     .sort((a, b) => String(b.completedAt || b.date || "").localeCompare(String(a.completedAt || a.date || "")));
+  const adminRows = rows
+    .filter((row) => row.read !== true && row.read !== "TRUE" && (row.for === "admin" || row.for === "all"))
+    .sort((a, b) => String(b.createdAt || b.date || "").localeCompare(String(a.createdAt || a.date || "")));
   const visibleRows = user.role === "admin"
-    ? []
+    ? adminRows
     : rows.filter((row) => row.read !== true && row.read !== "TRUE" && (row.for === "all" || row.for === user.role || row.for === user.username));
+  const adminNotificationCount = readyRooms.length + adminRows.length;
 
   return (
     <section className="panel">
-      <SectionHead title="התראות" badge={`${user.role === "admin" ? readyRooms.length : visibleRows.length} התראות`} />
+      <SectionHead title="התראות" badge={`${user.role === "admin" ? adminNotificationCount : visibleRows.length} התראות`} />
       {user.role === "admin" ? (
-        <ListBlock title="חדרים מוכנים" empty="אין חדרים שסומנו כמוכנים">
-          {readyRooms.map((row) => (
-            <article className="list-item" key={row.id}>
-              <div>
-                <strong>{row.room || "חדר"}</strong>
-                <p>
-                  {row.date ? <>כניסה: <DateText>{formatDisplayDate(row.date)}</DateText></> : "סומן כמוכן"}
-                  {row.completedAt ? <> · מוכן: <DateText>{formatDateTime(row.completedAt)}</DateText></> : ""}
-                  {row.guests ? ` · ${row.guests} אורחים` : ""}
-                  {row.notes ? ` · ${row.notes}` : ""}
-                </p>
-              </div>
-              <div className="actions">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setHiddenReadyRooms((current) => [...current, row.id]);
-                    actions.notice("הוסר מהתצוגה");
-                  }}
-                >
-                  נקרא
-                </button>
-              </div>
-            </article>
-          ))}
-        </ListBlock>
+        <>
+          <ListBlock title="חדרים מוכנים" empty="אין חדרים שסומנו כמוכנים">
+            {readyRooms.map((row) => (
+              <article className="list-item" key={row.id}>
+                <div>
+                  <strong>{row.room || "חדר"}</strong>
+                  <p>
+                    {row.date ? <>כניסה: <DateText>{formatDisplayDate(row.date)}</DateText></> : "סומן כמוכן"}
+                    {row.completedAt ? <> · מוכן: <DateText>{formatDateTime(row.completedAt)}</DateText></> : ""}
+                    {row.guests ? ` · ${row.guests} אורחים` : ""}
+                    {row.notes ? ` · ${row.notes}` : ""}
+                  </p>
+                </div>
+                <div className="actions">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHiddenReadyRooms((current) => [...current, row.id]);
+                      actions.notice("הוסר מהתצוגה");
+                    }}
+                  >
+                    נקרא
+                  </button>
+                </div>
+              </article>
+            ))}
+          </ListBlock>
+          <ListBlock title="התראות אדמין" empty="אין התראות אדמין">
+            {adminRows.map((row) => (
+              <article className="list-item" key={row.id}>
+                <div>
+                  <strong>{row.room || "התראה"}</strong>
+                  <p>{row.message}</p>
+                </div>
+                <div className="actions">
+                  <button type="button" onClick={() => actions.update(TABLES.notifications, { ...row, read: true })}>
+                    נקרא
+                  </button>
+                </div>
+              </article>
+            ))}
+          </ListBlock>
+        </>
       ) : (
         <ListBlock title="התראות" empty="אין התראות">
           {visibleRows.slice().reverse().map((row) => (
