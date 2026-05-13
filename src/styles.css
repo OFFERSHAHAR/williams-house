@@ -70,7 +70,7 @@ button {
 .app-shell {
   width: min(100%, 1040px);
   margin: 0 auto;
-  overflow-x: clip;
+  overflow-x: hidden;
   animation: page-in 360ms ease both;
 }
 
@@ -1029,7 +1029,9 @@ button:disabled {
 .calendar-modal {
   width: min(520px, 100%);
   max-height: min(82vh, 720px);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
@@ -1057,6 +1059,12 @@ button:disabled {
 .calendar-modal-list {
   display: grid;
   gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  padding-bottom: 2px;
 }
 
 .calendar-modal-item,
@@ -1141,6 +1149,7 @@ button:disabled {
 .house-room-list {
   display: grid;
   gap: 14px;
+  min-height: 0;
 }
 
 .house-room,
@@ -1313,6 +1322,7 @@ button:disabled {
     padding-inline: 10px;
     padding-top: calc(92px + env(safe-area-inset-top));
     padding-bottom: calc(28px + env(safe-area-inset-bottom));
+    touch-action: pan-y;
   }
 
   .header {
@@ -1370,7 +1380,7 @@ button:disabled {
   .panel {
     border-radius: 26px;
     padding: 14px;
-    overflow-x: clip;
+    overflow-x: hidden;
   }
 
   .section-head {
@@ -1466,13 +1476,20 @@ button:disabled {
   .modal-backdrop {
     padding: 10px;
     align-items: end;
+    overflow-y: hidden;
   }
 
   .calendar-modal {
     width: 100%;
     max-height: 88vh;
+    max-height: min(88dvh, 88vh);
     border-radius: 22px 22px 16px 16px;
     padding: 14px;
+  }
+
+  .calendar-modal-list {
+    max-height: calc(88vh - 96px);
+    max-height: calc(88dvh - 96px);
   }
 
   .calendar-modal-head h3 {
@@ -1526,6 +1543,16 @@ button:disabled {
 
   .house-room {
     padding: 18px;
+  }
+
+  .house-room-list {
+    max-height: calc(100vh - 235px);
+    max-height: calc(100dvh - 235px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    padding-bottom: 18px;
   }
 
   .house-room-top h3 {
