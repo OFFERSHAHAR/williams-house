@@ -322,12 +322,23 @@ export default function App() {
     }
   };
 
-  const login = (username, password) => {
-    const found = data.users.find(
+  const login = async (username, password) => {
+    const findUser = (rows) => rows.find(
       (row) =>
         String(row.username || "").trim().toLowerCase() === username.trim().toLowerCase() &&
         String(row.password || "").trim() === password.trim()
     );
+
+    let found = findUser(data.users);
+    if (!found) {
+      try {
+        const freshData = await loadData();
+        found = findUser(freshData.users || []);
+      } catch (err) {
+        setError(err.message || String(err));
+      }
+    }
+
     if (!found) return false;
     localStorage.setItem("williams_user", JSON.stringify(found));
     setUser(found);
@@ -398,11 +409,16 @@ function LoginScreen({ users, error, onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
   const [pushMessage, setPushMessage] = useState("");
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
-    if (!onLogin(username, password)) setLoginError("שם משתמש או סיסמה שגויים");
+    setLoginError("");
+    setLoginBusy(true);
+    const ok = await onLogin(username, password);
+    if (!ok) setLoginError("שם משתמש או סיסמה שגויים");
+    setLoginBusy(false);
   };
 
   const enablePush = async () => {
@@ -427,8 +443,8 @@ function LoginScreen({ users, error, onLogin }) {
           סיסמה
           <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" />
         </label>
-        <button className="primary" disabled={!username || !password || users.length === 0} type="submit">
-          כניסה
+        <button className="primary" disabled={loginBusy || !username || !password || users.length === 0} type="submit">
+          {loginBusy ? "בודק..." : "כניסה"}
         </button>
         <button className="notify-login" type="button" onClick={enablePush}>
           הפעל התראות במכשיר הזה
@@ -811,7 +827,12 @@ function BookingsCalendar({ rows, actions, canEdit = false }) {
             {!cell.empty && (
               <>
                 <span className="calendar-date">{cell.day}</span>
-                {cell.rows.length > 0 && <strong>{cell.rows.length} כניסות</strong>}
+                {cell.rows.length > 0 && (
+                  <strong>
+                    <span className="calendar-count-number">{cell.rows.length}</span>
+                    <span className="calendar-count-label"> כניסות</span>
+                  </strong>
+                )}
                 {cell.rows.slice(0, 3).map((row) => (
                   <small key={row.id || `${cell.date}-${row.room}`}>{row.room || "חדר"}</small>
                 ))}
