@@ -1296,12 +1296,13 @@ button:disabled {
 @media (max-width: 560px) {
   .screen {
     padding-inline: 10px;
-    padding-bottom: calc(104px + env(safe-area-inset-bottom));
+    padding-top: calc(92px + env(safe-area-inset-top));
+    padding-bottom: calc(28px + env(safe-area-inset-bottom));
   }
 
   .header {
     align-items: flex-start;
-    margin-bottom: 20px;
+    margin-bottom: 14px;
   }
 
   h1 {
@@ -1310,9 +1311,9 @@ button:disabled {
 
   .tabs {
     position: fixed;
-    top: auto;
+    top: calc(8px + env(safe-area-inset-top));
     right: 14px;
-    bottom: calc(12px + env(safe-area-inset-bottom));
+    bottom: auto;
     left: 14px;
     z-index: 80;
     margin: 0;
