@@ -1020,12 +1020,19 @@ button:disabled {
   padding: 18px;
   background: rgba(17, 24, 39, 0.46);
   backdrop-filter: blur(8px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .calendar-modal {
   width: min(520px, 100%);
   max-height: min(82vh, 720px);
-  overflow: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
   border-radius: 24px;
   background: var(--surface-solid);
   border: 1px solid rgba(255, 255, 255, 0.86);
@@ -1088,6 +1095,14 @@ button:disabled {
   color: var(--ink-3);
   font-weight: 900;
   text-align: center;
+}
+
+.date-text {
+  direction: ltr;
+  unicode-bidi: isolate;
+  display: inline-block;
+  text-align: left;
+  white-space: nowrap;
 }
 
 .panel,

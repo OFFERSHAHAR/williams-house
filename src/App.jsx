@@ -107,7 +107,7 @@ function turnoverChangeSummary(before, after) {
   if (!changes.length) return "";
   const room = after.room || before.room || "חדר";
   const date = after.date || before.date || "";
-  return `שינוי בסידור עבודה - ${room}${date ? ` (${date})` : ""}: ${changes.join(" · ")}`;
+  return `שינוי בסידור עבודה - ${room}${date ? ` (${formatDisplayDate(date)})` : ""}: ${changes.join(" · ")}`;
 }
 
 function findTurnoverChanges(previousRows = [], nextRows = []) {
@@ -128,7 +128,7 @@ function turnoverDetails(row) {
   if (!row) return "";
   return [
     row.room || "חדר",
-    row.date,
+    formatDisplayDate(row.date),
     `${row.guests || 0} אורחים`,
     row.children ? `${row.children} ילדים` : "",
     row.babies ? `${row.babies} תינוקות` : "",
@@ -136,6 +136,21 @@ function turnoverDetails(row) {
     row.isOccupied ? "החלפה" : "",
     row.notes || ""
   ].filter(Boolean).join(" · ");
+}
+
+function DateText({ children }) {
+  return (
+    <span className="date-text" dir="ltr">
+      {children}
+    </span>
+  );
+}
+
+function formatDisplayDate(value) {
+  if (!value) return "";
+  const text = String(value).slice(0, 10);
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : text;
 }
 
 function hoursBetween(start, end) {
@@ -912,7 +927,7 @@ function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, 
               <div>
                 <strong>{row.room}</strong>
                 <p>
-                  {row.date} · {row.guests || 0} אורחים
+                  <DateText>{formatDisplayDate(row.date)}</DateText> · {row.guests || 0} אורחים
                   {row.children ? ` · ${row.children} ילדים` : ""}
                   {row.babies ? ` · ${row.babies} תינוקות` : ""}
                   {row.isReturning ? " · לקוח חוזר" : " · לקוח חדש"}
@@ -1114,7 +1129,7 @@ function HouseRoomCard({ row, saving, onComplete }) {
     <article className={row.isOccupied ? "house-room occupied" : "house-room"}>
       <div className="house-room-top">
         <div>
-          <p>{row.date}</p>
+          <p><DateText>{formatDisplayDate(row.date)}</DateText></p>
           <h3>{row.room}</h3>
         </div>
         {row.isOccupied && <span className="house-alert">החלפה</span>}
@@ -1421,7 +1436,7 @@ function HoursPanel({ rows, saving, user, actions }) {
             <div>
               <strong>{row.userName}</strong>
               <p>
-                {row.date} · {row.startTime}-{row.endTime}
+                <DateText>{formatDisplayDate(row.date)}</DateText> · <DateText>{row.startTime}-{row.endTime}</DateText>
               </p>
             </div>
             <div className="actions">
@@ -1480,8 +1495,8 @@ function NotificationsPanel({ rows, turnovers, user, actions }) {
               <div>
                 <strong>{row.room || "חדר"}</strong>
                 <p>
-                  {row.date ? `כניסה: ${row.date}` : "סומן כמוכן"}
-                  {row.completedAt ? ` · מוכן: ${formatDateTime(row.completedAt)}` : ""}
+                  {row.date ? <>כניסה: <DateText>{formatDisplayDate(row.date)}</DateText></> : "סומן כמוכן"}
+                  {row.completedAt ? <> · מוכן: <DateText>{formatDateTime(row.completedAt)}</DateText></> : ""}
                   {row.guests ? ` · ${row.guests} אורחים` : ""}
                   {row.notes ? ` · ${row.notes}` : ""}
                 </p>
@@ -1615,7 +1630,7 @@ function PoolPanel({ logs, equipment, saving, user, actions }) {
           <article className="list-item" key={lastUv.id}>
             <div>
               <strong>החלפה אחרונה</strong>
-              <p>{formatDateTime(lastUv.doneAt)}</p>
+              <p><DateText>{formatDateTime(lastUv.doneAt)}</DateText></p>
             </div>
           </article>
         )}
@@ -1626,7 +1641,7 @@ function PoolPanel({ logs, equipment, saving, user, actions }) {
             <div>
               <strong>{row.name || row.type || "ציוד"}</strong>
               <p>
-                {row.lastReplaced ? `הוחלף: ${formatDateTime(row.lastReplaced)}` : "לא נרשם תאריך החלפה"}
+                {row.lastReplaced ? <>הוחלף: <DateText>{formatDateTime(row.lastReplaced)}</DateText></> : "לא נרשם תאריך החלפה"}
                 {row.notes ? ` · ${row.notes}` : ""}
               </p>
             </div>
@@ -1638,7 +1653,7 @@ function PoolPanel({ logs, equipment, saving, user, actions }) {
         {treatmentLogs.slice(0, 30).map((row) => (
           <article className="list-item" key={row.id}>
             <div>
-              <strong>{formatDateTime(row.doneAt)}</strong>
+              <strong><DateText>{formatDateTime(row.doneAt)}</DateText></strong>
               <p>
                 {row.doneBy || "עופר"}
                 {row.notes ? ` · ${row.notes}` : ""}
