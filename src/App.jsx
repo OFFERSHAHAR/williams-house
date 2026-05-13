@@ -1377,7 +1377,6 @@ function HoursPanel({ rows, saving, user, users = [], actions }) {
   const currentMonth = monthKey(today());
   const monthTotal = visibleRows.filter((row) => monthKey(row.date) === currentMonth).reduce((sum, row) => sum + (Number(row.totalHours) || 0), 0);
   const total = hoursBetween(form.startTime, form.endTime);
-  const totalsByPerson = summarizeHoursByPerson(visibleRows.filter((row) => monthKey(row.date) === currentMonth));
 
   const submit = async (event) => {
     event.preventDefault();
@@ -1398,19 +1397,7 @@ function HoursPanel({ rows, saving, user, users = [], actions }) {
     <section className="panel">
       <SectionHead title="שעות" badge={`${monthTotal.toFixed(1)} החודש`} />
       {user.role === "admin" ? (
-        <>
-          <div className="summary-line">תצוגת אדמין בלבד: שעות של משק בית ואחזקה</div>
-          {totalsByPerson.length > 0 && (
-            <div className="hours-summary">
-              {totalsByPerson.map((row) => (
-                <div className="hours-total" key={row.name}>
-                  <span>{row.name}</span>
-                  <strong>{row.total.toFixed(1)}</strong>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
+        null
       ) : (
         <form className="form" onSubmit={submit}>
           <div className="form-row three">
@@ -1476,7 +1463,7 @@ function displayHourUserName(row, users = []) {
   if (matchedUser?.display) return matchedUser.display;
   if (lower.includes("jude") || lower.includes("jud") || lower.includes("house")) return "ג׳וד";
   if (lower.includes("offer") || lower.includes("ofer") || lower.includes("maint")) return "אחזקה";
-  return row.userName || row.userId || "לא ידוע";
+  return "לא ידוע";
 }
 
 function isHouseOrMaintenanceHour(row) {
@@ -1492,15 +1479,6 @@ function isHouseOrMaintenanceHour(row) {
     value.includes("ofer") ||
     value.includes("עופר")
   );
-}
-
-function summarizeHoursByPerson(rows) {
-  const totals = new Map();
-  rows.forEach((row) => {
-    const name = row.userName || row.userId || "לא ידוע";
-    totals.set(name, (totals.get(name) || 0) + (Number(row.totalHours) || 0));
-  });
-  return Array.from(totals, ([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total);
 }
 
 function NotificationsPanel({ rows, turnovers, user, actions }) {
