@@ -32,7 +32,7 @@ html {
   max-width: 100%;
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior-y: none;
+  overscroll-behavior-y: auto;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -43,7 +43,7 @@ body {
   direction: rtl;
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior-y: none;
+  overscroll-behavior-y: auto;
   -webkit-overflow-scrolling: touch;
   -webkit-user-select: none;
   user-select: none;
@@ -1590,12 +1590,8 @@ button:disabled {
   }
 
   .house-room-list {
-    max-height: calc(100vh - 235px);
-    max-height: calc(100dvh - 235px);
-    overflow-y: auto;
-    overscroll-behavior: auto;
-    -webkit-overflow-scrolling: touch;
-    touch-action: auto;
+    max-height: none;
+    overflow-y: visible;
     padding-bottom: 18px;
   }
 
