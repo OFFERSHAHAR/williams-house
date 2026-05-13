@@ -29,16 +29,26 @@
 
 html {
   min-height: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
   overscroll-behavior-y: none;
 }
 
 body {
   min-height: 100%;
+  max-width: 100%;
   margin: 0;
   direction: rtl;
   overflow-x: hidden;
   overscroll-behavior-y: none;
   -webkit-font-smoothing: antialiased;
+}
+
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
 }
 
 button,
@@ -60,6 +70,7 @@ button {
 .app-shell {
   width: min(100%, 1040px);
   margin: 0 auto;
+  overflow-x: clip;
   animation: page-in 360ms ease both;
 }
 
@@ -792,6 +803,29 @@ button:disabled {
   color: var(--ink);
 }
 
+.panel .list-item,
+.panel .mini-row,
+.panel .summary-line,
+.panel .calendar-day,
+.panel .calendar-modal-item,
+.panel .calendar-modal-empty {
+  color: var(--ink);
+}
+
+.panel .list-item p,
+.panel .mini-row span,
+.panel .calendar-modal-item p,
+.panel .calendar-modal-item small {
+  color: var(--ink-2);
+}
+
+.panel .section-head h2,
+.panel .list-item strong,
+.panel .mini-row strong,
+.panel .calendar-modal-item strong {
+  color: var(--ink);
+}
+
 .pool-main-action {
   width: 100%;
   background: white;
@@ -1055,6 +1089,19 @@ button:disabled {
   font-weight: 900;
   text-align: center;
 }
+
+.panel,
+.booking-board,
+.house-board,
+.calendar-panel,
+.calendar-grid,
+.calendar-weekdays,
+.calendar-day,
+.list-item,
+.stat,
+.mini-row {
+  min-width: 0;
+}
 .room-picker {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
@@ -1248,7 +1295,7 @@ button:disabled {
 
 @media (max-width: 560px) {
   .screen {
-    padding-inline: 14px;
+    padding-inline: 10px;
     padding-bottom: calc(104px + env(safe-area-inset-bottom));
   }
 
@@ -1306,7 +1353,132 @@ button:disabled {
 
   .panel {
     border-radius: 26px;
-    padding: 18px;
+    padding: 14px;
+    overflow-x: clip;
+  }
+
+  .section-head {
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-head h2 {
+    font-size: 20px;
+  }
+
+  .pill {
+    padding: 6px 9px;
+    font-size: 11px;
+  }
+
+  .house-switch {
+    gap: 6px;
+    padding: 5px;
+  }
+
+  .house-switch button {
+    min-height: 46px;
+    border-radius: 15px;
+    padding: 9px 7px;
+    font-size: 15px;
+    line-height: 1.1;
+    white-space: normal;
+  }
+
+  .booking-switch {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .calendar-panel {
+    gap: 10px;
+  }
+
+  .calendar-head {
+    grid-template-columns: 68px minmax(0, 1fr) 68px;
+    gap: 6px;
+  }
+
+  .calendar-head button {
+    min-height: 42px;
+    padding: 8px 6px;
+    border-radius: 14px;
+    font-size: 13px;
+  }
+
+  .calendar-head h3 {
+    font-size: 18px;
+  }
+
+  .calendar-head p {
+    font-size: 12px;
+  }
+
+  .calendar-weekdays,
+  .calendar-grid {
+    gap: 4px;
+  }
+
+  .calendar-weekdays span {
+    font-size: 11px;
+  }
+
+  .calendar-day {
+    min-height: 78px;
+    gap: 2px;
+    padding: 7px 3px;
+    border-radius: 12px;
+  }
+
+  .calendar-date {
+    font-size: 12px;
+  }
+
+  .calendar-day strong {
+    font-size: 10px;
+    line-height: 1.15;
+  }
+
+  .calendar-day small {
+    font-size: 9px;
+    line-height: 1.15;
+  }
+
+  .calendar-day small:nth-of-type(n + 2) {
+    display: none;
+  }
+
+  .modal-backdrop {
+    padding: 10px;
+    align-items: end;
+  }
+
+  .calendar-modal {
+    width: 100%;
+    max-height: 88vh;
+    border-radius: 22px 22px 16px 16px;
+    padding: 14px;
+  }
+
+  .calendar-modal-head h3 {
+    font-size: 22px;
+  }
+
+  .calendar-modal-item,
+  .calendar-modal-empty {
+    padding: 13px;
+  }
+
+  .calendar-modal-item strong {
+    font-size: 17px;
+  }
+
+  .calendar-modal-item p,
+  .calendar-modal-item small {
+    font-size: 13px;
+  }
+
+  .room-picker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .form-row,
