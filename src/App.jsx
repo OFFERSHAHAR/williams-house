@@ -1104,6 +1104,7 @@ function HouseTurnoversPanel({ rows, saving, actions }) {
                 key={row.id}
                 row={row}
                 saving={saving}
+                showComplete={view === "today"}
                 onComplete={() => actions.update(TABLES.turnovers, { ...row, status: "completed", completedAt: nowIso() })}
               />
             ))
@@ -1113,7 +1114,7 @@ function HouseTurnoversPanel({ rows, saving, actions }) {
     </section>
   );
 }
-function HouseRoomCard({ row, saving, onComplete }) {
+function HouseRoomCard({ row, saving, onComplete, showComplete = true }) {
   const childParts = [
     row.children ? `${row.children} ילדים` : "",
     row.babies ? `${row.babies} תינוקות` : ""
@@ -1152,11 +1153,13 @@ function HouseRoomCard({ row, saving, onComplete }) {
 
       {row.notes && <div className="house-note">{row.notes}</div>}
 
-      <div className="house-actions">
-        <button className="primary" disabled={saving} type="button" onClick={onComplete}>
-          סיימתי את החדר
-        </button>
-      </div>
+      {showComplete && (
+        <div className="house-actions">
+          <button className="primary" disabled={saving} type="button" onClick={onComplete}>
+            סיימתי את החדר
+          </button>
+        </div>
+      )}
     </article>
   );
 }
