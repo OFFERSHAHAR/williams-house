@@ -41,6 +41,8 @@ body {
   direction: rtl;
   overflow-x: hidden;
   overscroll-behavior-y: none;
+  -webkit-user-select: none;
+  user-select: none;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -56,6 +58,8 @@ input,
 select,
 textarea {
   font: inherit;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 button {
