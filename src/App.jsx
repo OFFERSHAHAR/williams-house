@@ -178,14 +178,13 @@ async function initOneSignalSubscription(user) {
 }
 
 export default function App() {
-  const cached = readCachedData();
-  const [data, setData] = useState(() => ({ ...emptyData, ...(cached?.data || {}) }));
-  const [loading, setLoading] = useState(!cached?.data);
-  const [refreshing, setRefreshing] = useState(!!cached?.data);
+  const [cachedSnapshot] = useState(() => readCachedData());
+  const [data, setData] = useState(() => ({ ...emptyData, ...(cachedSnapshot?.data || {}) }));
+  const [loading, setLoading] = useState(!cachedSnapshot?.data);
   const [error, setError] = useState("");
   const [scheduleNotice, setScheduleNotice] = useState("");
   const [saving, setSaving] = useState(false);
-  const previousTurnoversRef = useRef(cached?.data?.turnovers || []);
+  const previousTurnoversRef = useRef(cachedSnapshot?.data?.turnovers || []);
   const [user, setUser] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("williams_user") || "null");
@@ -209,6 +208,8 @@ export default function App() {
   };
 
   useEffect(() => {
+    if (cachedSnapshot?.data) return;
+
     let alive = true;
 
     loadData()
@@ -217,13 +218,12 @@ export default function App() {
       })
       .finally(() => {
         if (alive) setLoading(false);
-        if (alive) setRefreshing(false);
       });
 
     return () => {
       alive = false;
     };
-  }, []);
+  }, [cachedSnapshot]);
 
   useEffect(() => {
     const tabs = tabSets[user?.role || "admin"] || tabSets.admin;
@@ -289,7 +289,7 @@ export default function App() {
   }
 
   if (!user) {
-    return <LoginScreen users={data.users} error={error} refreshing={refreshing} onLogin={login} />;
+    return <LoginScreen users={data.users} error={error} onLogin={login} />;
   }
 
   const tabs = tabSets[user.role] || tabSets.admin;
@@ -309,8 +309,7 @@ export default function App() {
         </button>
       </header>
 
-      {refreshing && <div className="notice">מציג נתונים שמורים ומרענן ברקע...</div>}
-      {!refreshing && error && <div className="notice error">שגיאה: {error}</div>}
+      {error && <div className="notice error">שגיאה: {error}</div>}
       {scheduleNotice && (
         <div className="notice schedule-change">
           <strong>חל שינוי בסידור העבודה</strong>
@@ -337,7 +336,7 @@ export default function App() {
   );
 }
 
-function LoginScreen({ users, error, refreshing, onLogin }) {
+function LoginScreen({ users, error, onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -360,7 +359,6 @@ function LoginScreen({ users, error, refreshing, onLogin }) {
         <p className="eyebrow">Williams House</p>
         <h1>בית ויליאמס</h1>
         <p className="muted">כניסה לפי המשתמשים בטאב users</p>
-        {refreshing && <div className="notice">מרענן משתמשים ברקע...</div>}
         {error && <div className="notice error">{error}</div>}
         {loginError && <div className="notice error">{loginError}</div>}
         <label>

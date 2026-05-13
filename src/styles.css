@@ -29,6 +29,7 @@
 
 html {
   min-height: 100%;
+  overscroll-behavior-y: none;
 }
 
 body {
@@ -36,6 +37,7 @@ body {
   margin: 0;
   direction: rtl;
   overflow-x: hidden;
+  overscroll-behavior-y: none;
   -webkit-font-smoothing: antialiased;
 }
 
