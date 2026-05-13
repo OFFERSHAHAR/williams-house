@@ -31,7 +31,9 @@ html {
   min-height: 100%;
   max-width: 100%;
   overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 body {
@@ -40,7 +42,9 @@ body {
   margin: 0;
   direction: rtl;
   overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior-y: none;
+  -webkit-overflow-scrolling: touch;
   -webkit-user-select: none;
   user-select: none;
   -webkit-font-smoothing: antialiased;
@@ -68,6 +72,7 @@ button {
 
 .screen {
   min-height: 100vh;
+  overflow-y: visible;
   padding: max(20px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom));
 }
 
@@ -1357,7 +1362,7 @@ button:disabled {
     padding-inline: 10px;
     padding-top: calc(92px + env(safe-area-inset-top));
     padding-bottom: calc(28px + env(safe-area-inset-bottom));
-    touch-action: pan-y;
+    touch-action: auto;
   }
 
   .header {
@@ -1588,9 +1593,9 @@ button:disabled {
     max-height: calc(100vh - 235px);
     max-height: calc(100dvh - 235px);
     overflow-y: auto;
-    overscroll-behavior: contain;
+    overscroll-behavior: auto;
     -webkit-overflow-scrolling: touch;
-    touch-action: pan-y;
+    touch-action: auto;
     padding-bottom: 18px;
   }
 
