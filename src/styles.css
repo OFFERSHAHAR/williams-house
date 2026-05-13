@@ -245,6 +245,32 @@ h2 {
   display: block;
 }
 
+.action-toast {
+  position: fixed;
+  left: 16px;
+  bottom: calc(18px + env(safe-area-inset-bottom));
+  z-index: 120;
+  min-width: 132px;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: 12px 16px;
+  border-radius: 18px;
+  background: rgba(17, 24, 39, 0.92);
+  color: white;
+  box-shadow: 0 18px 44px rgba(17, 24, 39, 0.24);
+  font-size: 14px;
+  font-weight: 950;
+  text-align: center;
+  animation: slide-in 220ms ease both;
+}
+
+.action-toast.success {
+  background: rgba(36, 161, 72, 0.94);
+}
+
+.action-toast.error {
+  background: rgba(217, 45, 32, 0.94);
+}
+
 .stat,
 .panel,
 .list-item,

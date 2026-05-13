@@ -184,6 +184,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [scheduleNotice, setScheduleNotice] = useState("");
   const [saving, setSaving] = useState(false);
+  const [actionNotice, setActionNotice] = useState(null);
+  const pendingWritesRef = useRef(0);
   const previousTurnoversRef = useRef(cachedSnapshot?.data?.turnovers || []);
   const [user, setUser] = useState(() => {
     try {
@@ -230,27 +232,61 @@ export default function App() {
     if (!tabs.includes(tab)) setTab(tabs[0]);
   }, [user, tab]);
 
-  const write = async (operation) => {
+  const applyOptimisticData = (updater) => {
+    setData((current) => {
+      const next = updater(current);
+      saveCachedData(next);
+      return next;
+    });
+  };
+
+  const runInBackground = (operation, messages) => {
+    pendingWritesRef.current += 1;
     setSaving(true);
-    try {
-      await operation();
-      await loadData();
-      setError("");
-    } catch (err) {
-      setError(err.message || String(err));
-    } finally {
-      setSaving(false);
-    }
+    setActionNotice({ type: "pending", text: messages.pending });
+
+    Promise.resolve()
+      .then(operation)
+      .then(loadData)
+      .then(() => {
+        setActionNotice({ type: "success", text: messages.success });
+        window.setTimeout(() => {
+          setActionNotice((current) => (current?.text === messages.success ? null : current));
+        }, 1800);
+      })
+      .catch((err) => {
+        const message = err.message || String(err);
+        setActionNotice({ type: "error", text: `שגיאה: ${message}` });
+        setError(message);
+        loadData().catch(() => {});
+      })
+      .finally(() => {
+        pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
+        if (pendingWritesRef.current === 0) setSaving(false);
+      });
   };
 
   const actions = {
-    add: (table, record) => write(() => addRecord(table, record)),
-    update: (table, record) => write(async () => {
+    notice: (text, type = "success") => {
+      setActionNotice({ type, text });
+      window.setTimeout(() => {
+        setActionNotice((current) => (current?.text === text ? null : current));
+      }, 1600);
+    },
+    add: (table, record) => {
+      applyOptimisticData((current) => ({
+        ...current,
+        [table]: [...(current[table] || []), record]
+      }));
+      runInBackground(() => addRecord(table, record), { pending: "נשלח...", success: "נשמר" });
+      setError("");
+      return Promise.resolve();
+    },
+    update: (table, record) => {
       const before = table === TABLES.turnovers ? data.turnovers.find((row) => row.id === record.id) : null;
       const summary = table === TABLES.turnovers ? turnoverChangeSummary(before, record) : "";
-      await updateRecord(table, record);
-      if (summary) {
-        await addRecord(TABLES.notifications, {
+      const notification = summary
+        ? {
           id: newId(),
           for: "house",
           room: "סידור עבודה",
@@ -259,10 +295,31 @@ export default function App() {
           read: false,
           createdAt: nowIso(),
           pushSent: ""
-        });
-      }
-    }),
-    remove: (table, id) => write(() => deleteRecord(table, id))
+        }
+        : null;
+
+      applyOptimisticData((current) => ({
+        ...current,
+        [table]: (current[table] || []).map((row) => (row.id === record.id ? record : row)),
+        notifications: notification ? [...(current.notifications || []), notification] : current.notifications
+      }));
+
+      runInBackground(async () => {
+        await updateRecord(table, record);
+        if (notification) await addRecord(TABLES.notifications, notification);
+      }, { pending: "נשלח עדכון...", success: "עודכן" });
+      setError("");
+      return Promise.resolve();
+    },
+    remove: (table, id) => {
+      applyOptimisticData((current) => ({
+        ...current,
+        [table]: (current[table] || []).filter((row) => row.id !== id)
+      }));
+      runInBackground(() => deleteRecord(table, id), { pending: "מוחק...", success: "נמחק" });
+      setError("");
+      return Promise.resolve();
+    }
   };
 
   const login = (username, password) => {
@@ -310,6 +367,7 @@ export default function App() {
       </header>
 
       {error && <div className="notice error">שגיאה: {error}</div>}
+      {actionNotice && <div className={`action-toast ${actionNotice.type}`}>{actionNotice.text}</div>}
       {scheduleNotice && (
         <div className="notice schedule-change">
           <strong>חל שינוי בסידור העבודה</strong>
@@ -1408,7 +1466,13 @@ function NotificationsPanel({ rows, turnovers, user, actions }) {
                 </p>
               </div>
               <div className="actions">
-                <button type="button" onClick={() => setHiddenReadyRooms((current) => [...current, row.id])}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setHiddenReadyRooms((current) => [...current, row.id]);
+                    actions.notice("הוסר מהתצוגה");
+                  }}
+                >
                   נקרא
                 </button>
               </div>
