@@ -413,7 +413,7 @@ export default function App() {
       {tab === "turnovers" && <TurnoversPanel rows={data.turnovers} saving={saving} user={user} actions={actions} />}
       {tab === "maintenance" && <MaintenancePanel rows={data.maintenance} turnovers={data.turnovers} saving={saving} user={user} actions={actions} />}
       {tab === "shopping" && <ShoppingPanel rows={data.shopping} saving={saving} user={user} users={data.users} actions={actions} />}
-      {tab === "hours" && <HoursPanel rows={data.hours} saving={saving} user={user} actions={actions} />}
+      {tab === "hours" && <HoursPanel rows={data.hours} saving={saving} user={user} users={data.users} actions={actions} />}
       {tab === "notifications" && <NotificationsPanel rows={data.notifications} turnovers={data.turnovers} saving={saving} user={user} users={data.users} actions={actions} />}
       {tab === "pool" && <PoolPanel logs={data.pool_logs} equipment={data.pool_equipment} saving={saving} user={user} actions={actions} />}
     </main>
@@ -1369,7 +1369,7 @@ function ShoppingList({ title, rows, actions, onPurchase }) {
   );
 }
 
-function HoursPanel({ rows, saving, user, actions }) {
+function HoursPanel({ rows, saving, user, users = [], actions }) {
   const [form, setForm] = useState({ date: today(), startTime: "08:00", endTime: "16:00" });
   const visibleRows = user.role === "admin"
     ? rows.filter((row) => isHouseOrMaintenanceHour(row))
@@ -1435,24 +1435,48 @@ function HoursPanel({ rows, saving, user, actions }) {
       )}
       <ListBlock title="רישומי שעות" empty="אין שעות">
         {visibleRows.slice().reverse().slice(0, 20).map((row) => (
-          <article className="list-item" key={row.id}>
-            <div>
-              <strong>{row.userName}</strong>
-              <p>
-                <DateText>{formatDisplayDate(row.date)}</DateText> · <DateText>{row.startTime}-{row.endTime}</DateText>
-              </p>
-            </div>
-            <div className="actions">
-              <span className="pill subtle">{row.totalHours} שעות</span>
-              <button className="danger" type="button" onClick={() => actions.remove(TABLES.hours, row.id)}>
-                מחק
-              </button>
-            </div>
-          </article>
+          user.role === "admin" ? (
+            <article className="list-item hours-row" key={row.id}>
+              <span>שם: {displayHourUserName(row, users)}</span>
+              <span>תאריך: <DateText>{formatDisplayDate(row.date)}</DateText></span>
+              <span>כניסה: <DateText>{row.startTime || "-"}</DateText></span>
+              <span>יציאה: <DateText>{row.endTime || "-"}</DateText></span>
+              <strong>סה"כ: {Number(row.totalHours || 0).toFixed(1)} שעות</strong>
+            </article>
+          ) : (
+            <article className="list-item" key={row.id}>
+              <div>
+                <strong>{row.userName}</strong>
+                <p>
+                  <DateText>{formatDisplayDate(row.date)}</DateText> · <DateText>{row.startTime}-{row.endTime}</DateText>
+                </p>
+              </div>
+              <div className="actions">
+                <span className="pill subtle">{row.totalHours} שעות</span>
+                <button className="danger" type="button" onClick={() => actions.remove(TABLES.hours, row.id)}>
+                  מחק
+                </button>
+              </div>
+            </article>
+          )
         ))}
       </ListBlock>
     </section>
   );
+}
+
+function displayHourUserName(row, users = []) {
+  const value = `${row.userName || ""} ${row.userId || ""}`.trim();
+  const lower = value.toLowerCase();
+  const matchedUser = users.find((person) =>
+    sameText(person.username, row.userId) ||
+    sameText(person.username, row.userName) ||
+    sameText(person.display, row.userName)
+  );
+  if (matchedUser?.display) return matchedUser.display;
+  if (lower.includes("jude") || lower.includes("jud") || lower.includes("house")) return "ג׳וד";
+  if (lower.includes("offer") || lower.includes("ofer") || lower.includes("maint")) return "אחזקה";
+  return row.userName || row.userId || "לא ידוע";
 }
 
 function isHouseOrMaintenanceHour(row) {
