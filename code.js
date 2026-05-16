@@ -27,7 +27,7 @@ const SHEETS = {
   hours:          ['id','userId','userName','date','startTime','endTime','totalHours','createdAt'],
   pool_logs:      ['id','type','doneAt','doneBy','notes'],
   pool_equipment: ['id','name','lastReplaced','notes'],
-  report_sync:    ['id','syncedAt','arrivals','departures','sameDay','newRows','changedRows','unchangedRows','removedRows','writtenRows','skippedRows','totalRows','status','message'],
+  report_sync:    ['id','syncedAt','arrivals','departures','sameDay','newRows','changedRows','unchangedRows','removedRows','writtenRows','skippedRows','manualConflicts','totalRows','status','message'],
 };
 
 const DEFAULT_USERS = [
@@ -202,6 +202,7 @@ function readSheet(name) {
         h === 'removedRows' ||
         h === 'writtenRows' ||
         h === 'skippedRows' ||
+        h === 'manualConflicts' ||
         h === 'totalRows'
       ) {
         v = (v === '' || v === null) ? null : Number(v);
@@ -291,11 +292,18 @@ function isReportTurnover_(row, headers) {
   return id.indexOf('report-') === 0 || source === 'report' || source === 'local';
 }
 
+function roomDateKey_(record) {
+  const room = String(record.room || '').trim().toLowerCase();
+  const date = String(record.date || '').slice(0, 10);
+  return room && date ? room + '|' + date : '';
+}
+
 function createReportSyncNotifications_(summary) {
   const hasChanges =
     Number(summary.newRows || 0) > 0 ||
     Number(summary.changedRows || 0) > 0 ||
-    Number(summary.removedRows || 0) > 0;
+    Number(summary.removedRows || 0) > 0 ||
+    Number(summary.manualConflicts || 0) > 0;
 
   if (!hasChanges) return [];
 
@@ -395,6 +403,7 @@ function appendReportSync_(summary) {
     removedRows: Number(summary.removedRows || 0),
     writtenRows: Number(summary.writtenRows || 0),
     skippedRows: Number(summary.skippedRows || 0),
+    manualConflicts: Number(summary.manualConflicts || 0),
     totalRows: Number(summary.totalRows || 0),
     status: summary.status || 'ok',
     message: summary.message || ''
@@ -421,24 +430,43 @@ function syncReportTurnovers(rows, summary) {
     }))
     : [];
   const currentReportRows = currentRows.filter(item => isReportTurnover_(item.values, headers));
+  const manualRowsByRoomDate = {};
+  currentRows
+    .filter(item => !isReportTurnover_(item.values, headers))
+    .forEach(item => {
+      const key = roomDateKey_(item.record);
+      if (key) manualRowsByRoomDate[key] = item;
+    });
   const currentById = {};
   currentReportRows.forEach(item => {
     currentById[String(item.values[idIndex] || '')] = item;
   });
 
   const incomingById = {};
+  const manualConflicts = [];
   const incomingRows = rows.map(record => {
     const row = headers.map(h => {
       if (h === 'reportSource') return 'report';
       return record[h] === undefined || record[h] === null ? '' : record[h];
     });
+    const nextRecord = rowToRecord_(row, headers);
+    const manualConflict = manualRowsByRoomDate[roomDateKey_(nextRecord)];
+    if (manualConflict) {
+      manualConflicts.push({
+        id: String(row[idIndex] || ''),
+        room: nextRecord.room || '',
+        date: nextRecord.date || '',
+        manualId: manualConflict.record.id || ''
+      });
+      return null;
+    }
     incomingById[String(row[idIndex] || '')] = true;
     return {
       id: String(row[idIndex] || ''),
       row: row,
-      record: rowToRecord_(row, headers)
+      record: nextRecord
     };
-  }).filter(item => item.id);
+  }).filter(item => item && item.id);
 
   const newRows = [];
   const changedRows = [];
@@ -491,9 +519,12 @@ function syncReportTurnovers(rows, summary) {
     removedRows: removedRows.length,
     writtenRows: newRows.length + changedRows.length,
     skippedRows: unchangedRows,
+    manualConflicts: manualConflicts.length,
     totalRows: rows.length,
-    status: 'ok',
-    message: 'Reports synced to Sheets'
+    status: manualConflicts.length ? 'conflicts' : 'ok',
+    message: manualConflicts.length
+      ? 'Skipped report rows that conflict with manual entries'
+      : 'Reports synced to Sheets'
   };
 
   const notifications = createReportSyncNotifications_(serverSummary);
@@ -511,6 +542,7 @@ function syncReportTurnovers(rows, summary) {
     removedRows: serverSummary.removedRows,
     writtenRows: serverSummary.writtenRows,
     skippedRows: serverSummary.skippedRows,
+    manualConflicts: serverSummary.manualConflicts,
     total: rows.length,
     notifications: notifications.length,
     syncRecord: syncRecord

@@ -1085,10 +1085,10 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
     setStatus("שומר בשיטס...");
     try {
       const result = await actions.syncReports(analysis.nextRows, analysis.summary);
-      const saved = result?.newRows || result?.changedRows || result?.removedRows
-        ? `${result.newRows || 0} חדשים · ${result.changedRows || 0} שונו · ${result.removedRows || 0} הוסרו · ${result.unchangedRows || 0} לא נכתבו שוב`
+      const saved = result?.newRows || result?.changedRows || result?.removedRows || result?.manualConflicts
+        ? `${result.newRows || 0} חדשים · ${result.changedRows || 0} שונו · ${result.removedRows || 0} הוסרו · ${result.unchangedRows || 0} לא נכתבו שוב · ${result.manualConflicts || 0} התנגשויות ידניות`
         : "לא נמצאו שינויים לכתיבה";
-      setStatus(`נשמר בשיטס והיומנים עודכנו · ${saved}`);
+      setStatus(`הבדיקה הסתיימה והיומנים עודכנו · ${saved}`);
     } catch (err) {
       setError(err.message || String(err));
       setStatus("");
@@ -1119,6 +1119,10 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
         <div className="mini-metric">
           <span>לא נכתבו שוב</span>
           <strong>{lastSync?.skippedRows ?? 0}</strong>
+        </div>
+        <div className="mini-metric">
+          <span>התנגשויות ידניות</span>
+          <strong>{lastSync?.manualConflicts ?? 0}</strong>
         </div>
       </div>
 
