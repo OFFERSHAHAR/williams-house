@@ -1054,6 +1054,7 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
   const lastSync = reportSync
     .slice()
     .sort((a, b) => String(b.syncedAt || "").localeCompare(String(a.syncedAt || "")))[0];
+  const canApplyReports = Boolean(analysis && analysis.nextRows?.length);
 
   const setFile = (key, file) => {
     setFiles((current) => ({ ...current, [key]: file }));
@@ -1143,7 +1144,7 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
         <button className="primary" disabled={busy || !files.arrivals || !files.departures} type="button" onClick={analyze}>
           {busy ? "בודק..." : "בדוק שינויים"}
         </button>
-        <button disabled={busy || !analysis || (!analysis.summary.newRows && !analysis.summary.changedRows && !analysis.summary.removedRows)} type="button" onClick={applyToSheets}>
+        <button disabled={busy || !canApplyReports} type="button" onClick={applyToSheets}>
           {busy ? "שומר..." : "שמור בשיטס"}
         </button>
       </div>
