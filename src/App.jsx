@@ -267,6 +267,7 @@ function buildReportAnalysis(arrivalSheetRows, departureSheetRows, currentRows) 
   return {
     nextRows,
     summary: {
+      reportMonth: [...new Set(nextRows.map((row) => monthKey(row.date)).filter(Boolean))].sort().join(","),
       arrivals: nextRows.length,
       departures: departures.length,
       sameDay: nextRows.filter((row) => row.isOccupied).length,
@@ -766,7 +767,7 @@ function Dashboard({ data, onNavigate }) {
 }
 function TurnoversPanel({ rows, reportSync = [], saving, user, actions }) {
   if (user.role === "house") {
-    return <HouseTurnoversPanel rows={rows} saving={saving} user={user} actions={actions} />;
+    return <HouseTurnoversPanel rows={rows} reportSync={reportSync} saving={saving} user={user} actions={actions} />;
   }
 
   if (user.role === "bookings") {
@@ -832,7 +833,7 @@ function TurnoversPanel({ rows, reportSync = [], saving, user, actions }) {
       </div>
 
       {view === "calendar" ? (
-        <BookingsCalendar rows={rows} actions={actions} canEdit />
+        <BookingsCalendar rows={rows} reportSync={reportSync} actions={actions} canEdit />
       ) : (
         <>
           <form className="form" onSubmit={submit}>
@@ -975,7 +976,7 @@ function BookingTurnoversPanel({ rows, reportSync = [], saving, actions }) {
       </div>
 
       {view === "calendar" ? (
-        <BookingsCalendar rows={rows} actions={actions} canEdit />
+        <BookingsCalendar rows={rows} reportSync={reportSync} actions={actions} canEdit />
       ) : view === "schedule" ? (
         <form className="form" onSubmit={submit}>
           {duplicateNotice && <div className="notice error compact">{duplicateNotice}</div>}
@@ -1207,7 +1208,7 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
   );
 }
 
-function BookingsCalendar({ rows, actions, canEdit = false }) {
+function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
   const [month, setMonth] = useState(monthKey(today()));
   const [selectedDay, setSelectedDay] = useState(null);
   const [editingRow, setEditingRow] = useState(null);
@@ -1231,6 +1232,10 @@ function BookingsCalendar({ rows, actions, canEdit = false }) {
     })
   ];
   const totalEntries = monthRows.length;
+  const monthDepartureSync = reportSync
+    .filter((sync) => String(sync.reportMonth || "") === month)
+    .sort((a, b) => String(b.syncedAt || "").localeCompare(String(a.syncedAt || "")))[0];
+  const totalDepartures = monthDepartureSync?.departures ?? 0;
 
   return (
     <div className="calendar-panel">
@@ -1238,7 +1243,7 @@ function BookingsCalendar({ rows, actions, canEdit = false }) {
         <button type="button" onClick={() => setMonth(addMonths(month, -1))}>הקודם</button>
         <div>
           <h3>{formatMonthName(month)}</h3>
-          <p>{totalEntries} כניסות בחודש</p>
+          <p>{totalEntries} כניסות בחודש · {totalDepartures} עזיבות בחודש</p>
         </div>
         <button type="button" onClick={() => setMonth(addMonths(month, 1))}>הבא</button>
       </div>
@@ -1471,7 +1476,7 @@ function TurnoverEditForm({ row, rows, actions, onCancel, onSaved }) {
   );
 }
 
-function HouseTurnoversPanel({ rows, saving, user, actions }) {
+function HouseTurnoversPanel({ rows, reportSync = [], saving, user, actions }) {
   const [view, setView] = useState("today");
   const todayDate = today();
   const weekEnd = addDays(todayDate, 7);
@@ -1510,7 +1515,7 @@ function HouseTurnoversPanel({ rows, saving, user, actions }) {
       </div>
 
       {view === "calendar" ? (
-        <BookingsCalendar rows={rows} />
+        <BookingsCalendar rows={rows} reportSync={reportSync} />
       ) : (
         <div className="house-room-list">
           {visibleRows.length === 0 ? (

@@ -27,7 +27,7 @@ const SHEETS = {
   hours:          ['id','userId','userName','date','startTime','endTime','totalHours','createdAt'],
   pool_logs:      ['id','type','doneAt','doneBy','notes'],
   pool_equipment: ['id','name','lastReplaced','notes'],
-  report_sync:    ['id','syncedAt','arrivals','departures','sameDay','newRows','changedRows','unchangedRows','removedRows','writtenRows','skippedRows','manualOverrides','totalRows','status','message'],
+  report_sync:    ['id','syncedAt','arrivals','departures','sameDay','newRows','changedRows','unchangedRows','removedRows','writtenRows','skippedRows','manualOverrides','totalRows','status','message','reportMonth'],
 };
 
 const DEFAULT_USERS = [
@@ -410,7 +410,8 @@ function appendReportSync_(summary) {
     manualOverrides: Number(summary.manualOverrides || 0),
     totalRows: Number(summary.totalRows || 0),
     status: summary.status || 'ok',
-    message: summary.message || ''
+    message: summary.message || '',
+    reportMonth: summary.reportMonth || ''
   };
 
   addRecord('report_sync', record);
@@ -438,6 +439,7 @@ function syncReportTurnovers(rows, summary) {
     const month = recordMonthKey_(record);
     if (month) reportMonths[month] = true;
   });
+  const reportMonthKeys = Object.keys(reportMonths).sort();
   const isInReportMonth = item => Boolean(reportMonths[recordMonthKey_(item.record)]);
   const currentReportRows = currentRows
     .filter(item => isReportTurnover_(item.values, headers))
@@ -535,6 +537,7 @@ function syncReportTurnovers(rows, summary) {
     skippedRows: unchangedRows,
     manualOverrides: manualOverrides.length,
     totalRows: rows.length,
+    reportMonth: reportMonthKeys.length === 1 ? reportMonthKeys[0] : reportMonthKeys.join(','),
     status: manualOverrides.length ? 'manual-overrides' : 'ok',
     message: manualOverrides.length
       ? 'Report rows replaced matching manual entries'
