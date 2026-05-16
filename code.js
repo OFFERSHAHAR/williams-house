@@ -1,0 +1,518 @@
+/**
+ * בית ויליאמס - Backend
+ *
+ * הוראות:
+ *   1. צור Google Sheet חדש
+ *   2. Extensions → Apps Script
+ *   3. הדבק את הקוד הזה ב-Code.gs
+ *   4. עדכן את SPREADSHEET_ID למטה ל-ID של הגיליון החדש
+ *      ה-ID נמצא ב-URL בין /d/ ל-/edit
+ *   5. הוסף קובץ HTML חדש בשם "Index" והדבק את index.html
+ *   6. הרץ פעם אחת את setup()
+ *   7. Deploy → New deployment → Web app, Execute as: Me, Anyone has access
+ *
+ * משתמשים: ערוך אותם ישירות בטאב 'users' בגיליון.
+ * role יכול להיות: admin / bookings / maint / house
+ */
+
+// ⚙ עדכן את ה-ID של הגיליון:
+const SPREADSHEET_ID = '1zEJS5MV8tD0Op9QKOcNGoeTihRDk7ROPFJb70aP-AaY';
+
+const SHEETS = {
+  users:          ['username','password','role','display'],
+  maintenance:    ['id','title','description','location','dueDate','status','source','urgency','createdByName','createdAt','completedAt'],
+  turnovers:      ['id','room','date','guests','children','babies','hasCrib','hasHighChair','notes','isReturning','isOccupied','status','gardenDone','gardenDoneAt','createdAt','completedAt','reportSource'],
+  notifications:  ['id','for','message','room','date','read','createdAt','pushSent'],
+  shopping:       ['id','item','quantity','note','requestedBy','status','requestedAt','purchasedAt','category'],
+  hours:          ['id','userId','userName','date','startTime','endTime','totalHours','createdAt'],
+  pool_logs:      ['id','type','doneAt','doneBy','notes'],
+  pool_equipment: ['id','name','lastReplaced','notes'],
+};
+
+const DEFAULT_USERS = [
+  ['eldad', '050571', 'admin',    'אלדד'],
+  ['ifat',  '1234',   'bookings', 'יפעת'],
+  ['offer', '03907',  'maint',    'עופר'],
+  ['jude',  '12345',  'house',    'ג׳וד'],
+];
+
+const DEFAULT_POOL_EQUIPMENT = [
+  ['eq_uv_1', 'מנורת UV', '', ''],
+];
+
+function getSS() {
+  return SpreadsheetApp.openById(SPREADSHEET_ID);
+}
+
+/** הרץ פעם אחת */
+function setup() {
+  const ss = getSS();
+
+  Object.keys(SHEETS).forEach(name => {
+    let sheet = ss.getSheetByName(name);
+    if (!sheet) sheet = ss.insertSheet(name);
+
+    const headers = SHEETS[name];
+
+    sheet.getRange(1, 1, 1, headers.length)
+      .setValues([headers])
+      .setFontWeight('bold')
+      .setBackground('#F0F0F0');
+
+    sheet.setFrozenRows(1);
+  });
+
+  const usersSheet = ss.getSheetByName('users');
+  if (usersSheet.getLastRow() <= 1) {
+    usersSheet.getRange(2, 1, DEFAULT_USERS.length, 4).setValues(DEFAULT_USERS);
+  }
+
+  const eqSheet = ss.getSheetByName('pool_equipment');
+  if (eqSheet.getLastRow() <= 1) {
+    eqSheet.getRange(2, 1, DEFAULT_POOL_EQUIPMENT.length, 4).setValues(DEFAULT_POOL_EQUIPMENT);
+  }
+
+  const def = ss.getSheetByName('Sheet1') || ss.getSheetByName('גיליון1');
+  if (def && def.getLastRow() <= 1) {
+    try {
+      ss.deleteSheet(def);
+    } catch (e) {}
+  }
+
+  Logger.log('✅ Setup complete');
+}
+
+/** מחיקה של נתונים, משאיר users + headers */
+function clearAllData() {
+  const ss = getSS();
+
+  ['maintenance','turnovers','notifications','shopping','hours','pool_logs'].forEach(name => {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet) return;
+
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).clearContent();
+    }
+  });
+
+  Logger.log('✅ Data cleared');
+}
+
+function doGet(e) {
+  if (e && e.parameter && e.parameter.action) {
+    return handleApiGet(e);
+  }
+
+  return HtmlService.createHtmlOutputFromFile('Index')
+    .setTitle('בית ויליאמס')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+function handleApiGet(e) {
+  try {
+    if (e.parameter.action === 'read') {
+      const result = {};
+
+      Object.keys(SHEETS).forEach(name => {
+        result[name] = readSheet(name);
+      });
+
+      return jsonResponse({ ok: true, data: result });
+    }
+
+    return jsonResponse({ ok: false, error: 'Unknown action' });
+  } catch (err) {
+    return jsonResponse({ ok: false, error: String(err) });
+  }
+}
+
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    const { table, op, record, id, rows } = body;
+
+    if (!SHEETS[table]) {
+      throw new Error('Unknown table: ' + table);
+    }
+
+    if (table === 'users') {
+      throw new Error('Users are read-only via API');
+    }
+
+    let result;
+
+    if (op === 'add') {
+      result = addRecord(table, record);
+    } else if (op === 'update') {
+      result = updateRecord(table, record);
+    } else if (op === 'delete') {
+      result = deleteRecord(table, id);
+    } else if (table === 'turnovers' && op === 'syncReports') {
+      result = syncReportTurnovers(rows || []);
+    } else {
+      throw new Error('Unknown op: ' + op);
+    }
+
+    return jsonResponse({ ok: true, result });
+  } catch (err) {
+    return jsonResponse({ ok: false, error: String(err) });
+  }
+}
+
+function readSheet(name) {
+  const sheet = getSS().getSheetByName(name);
+  if (!sheet) return [];
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+
+  const headers = SHEETS[name];
+  const values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+
+  return values.map(row => {
+    const obj = {};
+
+    headers.forEach((h, i) => {
+      let v = row[i];
+
+      if (
+        h === 'hasCrib' ||
+        h === 'hasHighChair' ||
+        h === 'isReturning' ||
+        h === 'isOccupied' ||
+        h === 'read' ||
+        h === 'gardenDone'
+      ) {
+        v = v === true || v === 'TRUE' || v === 'true';
+      } else if (
+        h === 'guests' ||
+        h === 'children' ||
+        h === 'babies' ||
+        h === 'quantity' ||
+        h === 'totalHours'
+      ) {
+        v = (v === '' || v === null) ? null : Number(v);
+      } else if (
+        (h === 'date' || h === 'dueDate' || h === 'lastReplaced') &&
+        v instanceof Date
+      ) {
+        const yyyy = v.getFullYear();
+        const mm = String(v.getMonth() + 1).padStart(2, '0');
+        const dd = String(v.getDate()).padStart(2, '0');
+        v = `${yyyy}-${mm}-${dd}`;
+      } else if (v instanceof Date) {
+        v = v.toISOString();
+      } else if (h === 'password') {
+        v = String(v);
+      }
+
+      obj[h] = v;
+    });
+
+    return obj;
+  });
+}
+
+function addRecord(table, record) {
+  const sheet = getSS().getSheetByName(table);
+  const headers = SHEETS[table];
+
+  const row = headers.map(h => {
+    if (h === 'pushSent') return '';
+    return record[h] === undefined || record[h] === null ? '' : record[h];
+  });
+
+  sheet.appendRow(row);
+  return record;
+}
+
+function updateRecord(table, record) {
+  const sheet = getSS().getSheetByName(table);
+  const headers = SHEETS[table];
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    throw new Error('Empty table');
+  }
+
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues().map(r => r[0]);
+  const idx = ids.findIndex(x => String(x) === String(record.id));
+
+  if (idx === -1) {
+    throw new Error('Not found: ' + record.id);
+  }
+
+  const row = headers.map(h => {
+    if (h === 'pushSent') {
+      return record[h] === undefined || record[h] === null ? '' : record[h];
+    }
+
+    return record[h] === undefined || record[h] === null ? '' : record[h];
+  });
+
+  sheet.getRange(idx + 2, 1, 1, headers.length).setValues([row]);
+  return record;
+}
+
+function deleteRecord(table, id) {
+  const sheet = getSS().getSheetByName(table);
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+
+  const ids = sheet.getRange(2, 1, lastRow - 1, 1).getValues().map(r => r[0]);
+  const idx = ids.findIndex(x => String(x) === String(id));
+
+  if (idx === -1) return null;
+
+  sheet.deleteRow(idx + 2);
+
+  return { id, deleted: true };
+}
+
+function isReportTurnover_(row, headers) {
+  const idIndex = headers.indexOf('id');
+  const reportSourceIndex = headers.indexOf('reportSource');
+  const id = idIndex === -1 ? '' : String(row[idIndex] || '');
+  const source = reportSourceIndex === -1 ? '' : String(row[reportSourceIndex] || '').trim().toLowerCase();
+  return id.indexOf('report-') === 0 || source === 'report' || source === 'local';
+}
+
+function syncReportTurnovers(rows) {
+  if (!Array.isArray(rows)) {
+    throw new Error('rows must be an array');
+  }
+
+  const sheet = getSS().getSheetByName('turnovers');
+  const headers = SHEETS.turnovers;
+  const lastRow = sheet.getLastRow();
+  let keptRows = [];
+
+  if (lastRow > 1) {
+    const currentRows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+    keptRows = currentRows.filter(row => !isReportTurnover_(row, headers));
+    sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+  }
+
+  const reportRows = rows.map(record => headers.map(h => {
+    if (h === 'reportSource') return record[h] || 'report';
+    if (h === 'pushSent') return '';
+    return record[h] === undefined || record[h] === null ? '' : record[h];
+  }));
+
+  const nextRows = keptRows.concat(reportRows);
+
+  if (nextRows.length) {
+    sheet.getRange(2, 1, nextRows.length, headers.length).setValues(nextRows);
+  }
+
+  return {
+    synced: reportRows.length,
+    kept: keptRows.length,
+    total: nextRows.length
+  };
+}
+
+function jsonResponse(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/**
+ * שליחת Push דרך OneSignal
+ * דורש Script Properties:
+ * ONESIGNAL_APP_ID
+ * ONESIGNAL_REST_API_KEY
+ */
+function getNotificationTargets_(target) {
+  const cleanTarget = String(target || "").trim();
+  if (!cleanTarget) return [];
+
+  const usersSheet = getSS().getSheetByName("users");
+  if (!usersSheet || usersSheet.getLastRow() < 2) return [];
+
+  const values = usersSheet.getDataRange().getValues();
+  const headers = values.shift();
+  const usernameIndex = headers.indexOf("username");
+  const roleIndex = headers.indexOf("role");
+
+  if (usernameIndex === -1 || roleIndex === -1) return [];
+
+  return values
+    .filter(row => String(row[usernameIndex] || "").trim())
+    .filter(row => {
+      const username = String(row[usernameIndex] || "").trim();
+      const role = String(row[roleIndex] || "").trim();
+      return cleanTarget === "all" || cleanTarget === username || cleanTarget === role;
+    })
+    .map(row => String(row[usernameIndex] || "").trim());
+}
+
+function sendOneSignalPush(title, message, target = "admin") {
+  const props = PropertiesService.getScriptProperties();
+
+  const appId = props.getProperty("ONESIGNAL_APP_ID");
+  const apiKey = props.getProperty("ONESIGNAL_REST_API_KEY");
+
+  if (!appId) {
+    throw new Error("Missing ONESIGNAL_APP_ID in Script Properties");
+  }
+
+  if (!apiKey) {
+    throw new Error("Missing ONESIGNAL_REST_API_KEY in Script Properties");
+  }
+
+  const safeTitle = String(title || "בית ויליאמס").trim() || "בית ויליאמס";
+  const safeMessage = String(message || "").trim();
+
+  if (!safeMessage) {
+    Logger.log("Push skipped: empty message");
+    return {
+      ok: false,
+      skipped: true,
+      code: 0,
+      body: "empty message"
+    };
+  }
+
+  const externalIds = getNotificationTargets_(target);
+
+  if (!externalIds.length) {
+    Logger.log("Push skipped: no users for target " + target);
+    return {
+      ok: false,
+      skipped: true,
+      code: 0,
+      body: "no targets"
+    };
+  }
+
+  const payload = {
+    app_id: appId,
+    target_channel: "push",
+    include_aliases: {
+      external_id: externalIds
+    },
+    headings: {
+      en: safeTitle
+    },
+    contents: {
+      en: safeMessage
+    },
+    url: "https://williams-house.onrender.com"
+  };
+
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    headers: {
+      Authorization: "Key " + apiKey
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch("https://api.onesignal.com/notifications", options);
+  const code = response.getResponseCode();
+  const body = response.getContentText();
+
+  Logger.log("OneSignal status: " + code);
+  Logger.log(body);
+
+  return {
+    ok: code >= 200 && code < 300,
+    code: code,
+    body: body
+  };
+}
+
+/** בדיקת Push ידנית */
+function testOneSignalPush() {
+  const result = sendOneSignalPush(
+    "בדיקה מגוגל שיטס",
+    "אם זה הגיע, החיבור בין Google Apps Script ל-OneSignal עובד ✅"
+  );
+
+  Logger.log(JSON.stringify(result));
+  return JSON.stringify(result);
+}
+
+/**
+ * סורק את טאב notifications
+ * שולח Push רק לשורות שלא נקראו ושלא נשלחו
+ * ואז מסמן בעמודה H:
+ * כן = נשלח
+ * דלג-ריק = לא היה טקסט הודעה
+ * שגיאה = OneSignal החזיר שגיאה
+ */
+function checkNotificationsAndSendPush() {
+  const ss = getSS();
+  const sheet = ss.getSheetByName("notifications");
+
+  if (!sheet) {
+    throw new Error("Sheet 'notifications' not found");
+  }
+
+  const lastRow = sheet.getLastRow();
+
+  if (lastRow < 2) {
+    Logger.log("No notifications to check");
+    return;
+  }
+
+  const pushHeader = sheet.getRange(1, 8).getValue();
+
+  if (pushHeader !== "pushSent") {
+    sheet.getRange(1, 8).setValue("pushSent");
+    SpreadsheetApp.flush();
+  }
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowNumber = i + 2;
+
+    const id = rows[i][0];        // A: id
+    const target = String(rows[i][1] || "").trim(); // B: for
+    const messageRaw = rows[i][2]; // C: message
+    const roomRaw = rows[i][3];    // D: room
+    const read = rows[i][5];       // F: read
+    const pushSent = rows[i][7];   // H: pushSent
+
+    const message = String(messageRaw || "").trim();
+    const room = String(roomRaw || "").trim();
+
+    const isUnread = read === false || read === "FALSE" || read === "";
+    const wasNotSent = pushSent === "" || pushSent === null;
+
+    if (!isUnread || !wasNotSent) {
+      continue;
+    }
+
+    if (!message) {
+      sheet.getRange(rowNumber, 8).setValue("דלג-ריק");
+      SpreadsheetApp.flush();
+      Logger.log("Skipped empty notification message. row: " + rowNumber + ", id: " + id);
+      continue;
+    }
+
+    const title = room
+      ? "התראה חדשה - " + room
+      : "התראה חדשה מבית ויליאמס";
+
+    const result = sendOneSignalPush(title, message, target);
+
+    if (result && result.ok) {
+      sheet.getRange(rowNumber, 8).setValue("כן");
+      SpreadsheetApp.flush();
+      Logger.log("Push sent and marked YES for row: " + rowNumber + ", id: " + id);
+    } else {
+      const errorText = result && result.code ? "שגיאה " + result.code : "שגיאה";
+      sheet.getRange(rowNumber, 8).setValue(errorText);
+      SpreadsheetApp.flush();
+      Logger.log("Push failed for row: " + rowNumber + ", id: " + id + ", result: " + JSON.stringify(result));
+    }
+  }
+}

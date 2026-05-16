@@ -25,9 +25,11 @@
 
 * {
   box-sizing: border-box;
+  min-width: 0;
 }
 
 html {
+  width: 100%;
   min-height: 100%;
   max-width: 100%;
   overflow-x: hidden;
@@ -37,6 +39,7 @@ html {
 }
 
 body {
+  width: 100%;
   min-height: 100%;
   max-width: 100%;
   margin: 0;
@@ -48,6 +51,12 @@ body {
   -webkit-user-select: none;
   user-select: none;
   -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 img,
@@ -71,15 +80,19 @@ button {
 }
 
 .screen {
+  width: 100%;
+  max-width: 100%;
   min-height: 100vh;
+  overflow-x: clip;
   overflow-y: visible;
   padding: max(20px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom));
 }
 
 .app-shell {
   width: min(100%, 1040px);
+  max-width: 100%;
   margin: 0 auto;
-  overflow-x: hidden;
+  overflow-x: clip;
   animation: page-in 360ms ease both;
 }
 
@@ -96,6 +109,37 @@ button {
   gap: 16px;
   margin-bottom: 18px;
   padding: 12px 6px 4px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 8px 11px;
+  border-radius: 999px;
+  background: rgba(10, 132, 255, 0.11);
+  color: var(--blue-deep);
+  border: 1px solid rgba(10, 132, 255, 0.16);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.tiny-spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-left-color: transparent;
+  animation: spin 700ms linear infinite;
 }
 
 .eyebrow {
@@ -281,6 +325,24 @@ h2 {
   font-weight: 950;
   text-align: center;
   animation: slide-in 220ms ease both;
+}
+
+.action-toast.pending {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(10, 132, 255, 0.94);
+}
+
+.action-toast.pending::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  border-left-color: transparent;
+  animation: spin 700ms linear infinite;
 }
 
 .action-toast.success {
@@ -529,13 +591,36 @@ textarea:focus {
 
 .check,
 .segmented button {
-  background: rgba(235, 242, 249, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: rgba(235, 242, 249, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74), 0 8px 18px rgba(30, 42, 66, 0.04);
 }
 
 .check.active,
 .segmented button.active {
-  background: #111827;
-  color: #fff;
+  background: rgba(196, 107, 0, 0.2);
+  color: #7a3f00;
+  border-color: rgba(196, 107, 0, 0.34);
+  box-shadow: 0 12px 28px rgba(196, 107, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.68);
+}
+
+.checks .check:nth-child(1).active {
+  background: rgba(38, 137, 255, 0.16);
+  color: var(--blue-deep);
+  border-color: rgba(38, 137, 255, 0.28);
+}
+
+.checks .check:nth-child(2).active {
+  background: rgba(36, 161, 72, 0.15);
+  color: #15723a;
+  border-color: rgba(36, 161, 72, 0.26);
+}
+
+.checks .check:nth-child(3).active {
+  background: rgba(196, 107, 0, 0.24);
+  color: #713b00;
+  border-color: rgba(196, 107, 0, 0.42);
+  box-shadow: 0 14px 32px rgba(196, 107, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
 .segmented {
@@ -554,6 +639,51 @@ textarea:focus {
   padding: 13px;
   color: var(--blue-deep);
   font-weight: 900;
+}
+
+.reports-import {
+  display: grid;
+  gap: 14px;
+}
+
+.report-file-grid,
+.report-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.report-file {
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: 18px;
+  background: rgba(239, 245, 250, 0.86);
+  box-shadow: 0 10px 24px rgba(30, 42, 66, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  min-height: 118px;
+  padding: 16px;
+}
+
+.report-file span {
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.report-file strong {
+  color: var(--ink);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.report-file input {
+  font-size: 13px;
+  padding: 10px;
+}
+
+.report-actions {
+  justify-content: flex-start;
 }
 
 .hours-summary {
@@ -600,6 +730,8 @@ textarea:focus {
 }
 
 button {
+  position: relative;
+  overflow: hidden;
   border: none;
   border-radius: 15px;
   padding: 11px 14px;
@@ -608,16 +740,40 @@ button {
   cursor: pointer;
   font-size: 14px;
   font-weight: 900;
-  transition: transform 150ms ease, box-shadow 150ms ease, background 150ms ease, opacity 150ms ease;
+  transition: transform 150ms ease, box-shadow 150ms ease, background 150ms ease, opacity 150ms ease, filter 150ms ease;
+  touch-action: manipulation;
+  user-select: none;
 }
 
-button:active {
-  transform: scale(0.97);
+button:not(.stat-button)::after {
+  content: "";
+  position: absolute;
+  inset: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.34);
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+button:hover:not(:disabled) {
+  filter: brightness(1.015);
+  box-shadow: 0 10px 24px rgba(30, 42, 66, 0.08);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.965);
+}
+
+button:active:not(:disabled):not(.stat-button)::after {
+  animation: tap-wave 340ms ease-out;
 }
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.48;
+  opacity: 0.68;
 }
 
 .primary {
@@ -902,42 +1058,71 @@ button:disabled {
 }
 
 .house-switch {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  padding: 6px;
-  border-radius: 22px;
-  background: rgba(29, 32, 38, 0.07);
+  padding: 7px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
 .house-switch-three {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
 }
 
 .house-switch button {
-  min-height: 54px;
-  border-radius: 18px;
-  font-size: 20px;
-  background: transparent;
+  flex: 1 1 118px;
+  min-height: 52px;
+  border-radius: 999px;
+  padding: 12px 14px;
+  font-size: 17px;
+  line-height: 1.1;
+  background: rgba(235, 242, 249, 0.78);
+  color: var(--ink-2);
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  box-shadow: 0 8px 18px rgba(30, 42, 66, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  white-space: normal;
 }
 
 .house-switch button.active {
-  background: #111827;
-  color: white;
-  box-shadow: 0 12px 26px rgba(17, 24, 39, 0.22);
+  color: #0f2744;
+  border-color: rgba(38, 137, 255, 0.2);
+  background: rgba(38, 137, 255, 0.18);
+  box-shadow: 0 14px 30px rgba(38, 137, 255, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.house-switch button:nth-child(2).active {
+  color: #713b00;
+  border-color: rgba(196, 107, 0, 0.28);
+  background: rgba(196, 107, 0, 0.18);
+  box-shadow: 0 14px 30px rgba(196, 107, 0, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.house-switch button:nth-child(3).active {
+  color: #155f38;
+  border-color: rgba(36, 161, 72, 0.26);
+  background: rgba(36, 161, 72, 0.16);
+  box-shadow: 0 14px 30px rgba(36, 161, 72, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.house-switch button:nth-child(4).active {
+  color: #4e3db8;
+  border-color: rgba(118, 103, 255, 0.25);
+  background: rgba(118, 103, 255, 0.16);
+  box-shadow: 0 14px 30px rgba(118, 103, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.82);
 }
 
 .booking-board {
-  overflow: hidden;
+  overflow: clip;
 }
 
 .booking-switch {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 16px;
 }
 
 .admin-turnovers-switch {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-bottom: 16px;
 }
 
@@ -1279,6 +1464,36 @@ button:disabled {
   line-height: 1.45;
 }
 
+.house-issue {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.house-issue-toggle {
+  min-height: 52px;
+  border: 1px solid rgba(217, 45, 32, 0.18);
+  background: rgba(217, 45, 32, 0.08);
+}
+
+.house-issue.open {
+  padding: 12px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.house-issue-form {
+  display: grid;
+  gap: 10px;
+}
+
+.house-issue-form textarea {
+  min-height: 104px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
 .house-actions {
   display: grid;
   grid-template-columns: 1fr;
@@ -1335,6 +1550,25 @@ button:disabled {
   }
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes tap-wave {
+  0% {
+    width: 0;
+    height: 0;
+    opacity: 0.48;
+  }
+  100% {
+    width: 220%;
+    height: 220%;
+    opacity: 0;
+  }
+}
+
 @media (max-width: 720px) {
   .dashboard-grid {
     grid-template-columns: 1fr;
@@ -1358,10 +1592,19 @@ button:disabled {
 }
 
 @media (max-width: 560px) {
+  html,
+  body,
+  #root {
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
   .screen {
     padding-inline: 10px;
     padding-top: calc(92px + env(safe-area-inset-top));
     padding-bottom: calc(28px + env(safe-area-inset-bottom));
+    overflow-x: clip;
     touch-action: auto;
   }
 
@@ -1420,7 +1663,8 @@ button:disabled {
   .panel {
     border-radius: 26px;
     padding: 14px;
-    overflow-x: hidden;
+    max-width: 100%;
+    overflow-x: clip;
   }
 
   .section-head {
@@ -1440,19 +1684,21 @@ button:disabled {
   .house-switch {
     gap: 6px;
     padding: 5px;
+    justify-content: stretch;
   }
 
   .house-switch button {
-    min-height: 46px;
-    border-radius: 15px;
-    padding: 9px 7px;
-    font-size: 15px;
+    flex: 1 1 calc(50% - 6px);
+    min-height: 44px;
+    border-radius: 999px;
+    padding: 10px 8px;
+    font-size: 14px;
     line-height: 1.1;
     white-space: normal;
   }
 
   .booking-switch {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    display: flex;
   }
 
   .calendar-panel {
@@ -1482,6 +1728,7 @@ button:disabled {
   .calendar-weekdays,
   .calendar-grid {
     gap: 3px;
+    max-width: 100%;
   }
 
   .calendar-weekdays span {
@@ -1566,11 +1813,13 @@ button:disabled {
 
   .actions {
     justify-content: stretch;
+    flex-wrap: wrap;
   }
 
   .actions button,
   .actions .pill {
     flex: 1;
+    min-width: 0;
   }
 
   .hours-row {

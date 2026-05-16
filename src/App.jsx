@@ -1,4 +1,5 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 import { addRecord, deleteRecord, readAll, readCachedData, saveCachedData, updateRecord } from "./api";
 import { TABLES } from "./config";
 import "./styles.css";
@@ -70,6 +71,7 @@ const isPoolTreatment = (row) => poolType(row).includes("treatment") || poolType
 const isPoolUv = (row) => poolType(row).includes("uv") || poolType(row).includes("מנור");
 const BOOKING_ROOMS = ["קרון", "יורט", "ראג'ה", "עדי", "שיטה"];
 const ONE_SIGNAL_APP_ID = "46062f6a-d7a8-4714-8765-bac63a2e3bc5";
+const REPORT_TURNOVER_PREFIX = "report-";
 const turnoverChangeFields = [
   ["room", "חדר"],
   ["date", "תאריך"],
@@ -110,6 +112,21 @@ function turnoverChangeSummary(before, after) {
   return `שינוי בסידור עבודה - ${room}${date ? ` (${formatDisplayDate(date)})` : ""}: ${changes.join(" · ")}`;
 }
 
+function turnoverCreatedSummary(row) {
+  const room = row.room || "חדר";
+  const date = row.date ? formatDisplayDate(row.date) : "";
+  const guests = Number(row.guests || 0);
+  const parts = [
+    `סידור עבודה חדש - ${room}${date ? ` (${date})` : ""}`,
+    guests ? `${guests} אורחים` : "",
+    row.children ? `${row.children} ילדים` : "",
+    row.babies ? `${row.babies} תינוקות` : "",
+    row.isOccupied ? "החלפה" : "",
+    row.notes ? String(row.notes).trim() : ""
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
 function findTurnoverChanges(previousRows = [], nextRows = []) {
   const previousById = new Map(previousRows.map((row) => [row.id, row]));
   return nextRows
@@ -122,6 +139,154 @@ function findDuplicateTurnover(rows, form, ignoreId = "") {
   const date = String(form.date || "").slice(0, 10);
   if (!room || !date) return null;
   return rows.find((row) => row.id !== ignoreId && String(row.room || "").trim().toLowerCase() === room && String(row.date || "").slice(0, 10) === date) || null;
+}
+
+function isReportTurnover(row) {
+  return String(row?.id || "").startsWith(REPORT_TURNOVER_PREFIX);
+}
+
+function normalizeReportText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeReportRoom(value) {
+  const room = normalizeReportText(value).replace(/׳/g, "'");
+  if (room.startsWith("ראג")) return "ראג'ה";
+  return room;
+}
+
+function parseReportDate(value) {
+  if (!value) return "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  if (typeof value === "number") {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (!parsed) return "";
+    return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+  }
+  const text = normalizeReportText(value);
+  const dateOnly = text.split(" ")[0];
+  const match = dateOnly.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})$/);
+  if (!match) return "";
+  const year = match[3].length === 2 ? `20${match[3]}` : match[3];
+  return `${year}-${match[2].padStart(2, "0")}-${match[1].padStart(2, "0")}`;
+}
+
+function parseGuestCounts(value) {
+  const numbers = normalizeReportText(value).match(/\d+/g)?.map(Number) || [];
+  return {
+    guests: numbers[0] || 0,
+    children: numbers[1] || 0,
+    babies: numbers[2] || 0
+  };
+}
+
+function cleanReportNote(value) {
+  const text = normalizeReportText(value);
+  if (!text || /no note/i.test(text)) return "";
+  return text.replace(/^guest node:\s*/i, "").trim();
+}
+
+function getReportCell(row, headerMap, names) {
+  const key = names.find((name) => headerMap.has(name));
+  return key ? row[headerMap.get(key)] : "";
+}
+
+function extractReportRows(sheetRows, requiredHeaders) {
+  const headerIndex = sheetRows.findIndex((row) => requiredHeaders.every((header) => row.map(normalizeReportText).includes(header)));
+  if (headerIndex === -1) {
+    throw new Error(`לא נמצאה שורת כותרות מתאימה בקובץ`);
+  }
+  const headerMap = new Map(sheetRows[headerIndex].map((cell, index) => [normalizeReportText(cell), index]).filter(([cell]) => cell));
+  return sheetRows
+    .slice(headerIndex + 1)
+    .filter((row) => normalizeReportText(getReportCell(row, headerMap, ["מספר הזמנה"])).match(/^\d+$/))
+    .map((row) => ({ row, headerMap }));
+}
+
+async function readReportSheet(file) {
+  const buffer = await file.arrayBuffer();
+  const workbook = XLSX.read(buffer, { cellDates: true, type: "array" });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(sheet, { defval: "", header: 1, raw: false });
+}
+
+function buildReportAnalysis(arrivalSheetRows, departureSheetRows, currentRows) {
+  const arrivals = extractReportRows(arrivalSheetRows, ["מספר הזמנה", "תאריך הגעה", "תאריך עזיבה"]);
+  const departures = extractReportRows(departureSheetRows, ["מספר הזמנה", "תאריך הגעה", "תאריך עזיבה"]);
+  const departureKeys = new Set(
+    departures.map(({ row, headerMap }) => {
+      const room = normalizeReportRoom(getReportCell(row, headerMap, ["מספר חדר", "שם מוצר", "סוג חדר"]));
+      const date = parseReportDate(getReportCell(row, headerMap, ["תאריך עזיבה"]));
+      return `${room}|${date}`;
+    })
+  );
+
+  const nextRows = arrivals.map(({ row, headerMap }) => {
+    const bookingId = normalizeReportText(getReportCell(row, headerMap, ["מספר הזמנה"]));
+    const room = normalizeReportRoom(getReportCell(row, headerMap, ["סוג חדר", "מספר חדר", "שם מוצר"]));
+    const date = parseReportDate(getReportCell(row, headerMap, ["תאריך הגעה"]));
+    const guestName = normalizeReportText(getReportCell(row, headerMap, ["שם מלא"]));
+    const counts = parseGuestCounts(getReportCell(row, headerMap, ["מספר האורחים"]));
+    const reportNote = cleanReportNote(getReportCell(row, headerMap, ["הערות"]));
+    const notes = [
+      guestName ? `אורח: ${guestName}` : "",
+      bookingId ? `הזמנה: ${bookingId}` : "",
+      reportNote
+    ].filter(Boolean).join(" · ");
+
+    return {
+      id: `${REPORT_TURNOVER_PREFIX}${bookingId}`,
+      room,
+      date,
+      ...counts,
+      hasCrib: false,
+      hasHighChair: false,
+      isReturning: false,
+      isOccupied: departureKeys.has(`${room}|${date}`),
+      notes,
+      status: "pending",
+      gardenDone: false,
+      gardenDoneAt: "",
+      createdAt: nowIso(),
+      completedAt: "",
+      reportSource: "local"
+    };
+  }).filter((row) => row.room && row.date);
+
+  const previousReportRows = currentRows.filter(isReportTurnover);
+  const previousById = new Map(previousReportRows.map((row) => [row.id, row]));
+  const nextById = new Map(nextRows.map((row) => [row.id, row]));
+  const changedRows = nextRows.filter((row) => turnoverChangeSummary(previousById.get(row.id), row));
+  const newRows = nextRows.filter((row) => !previousById.has(row.id));
+  const unchangedRows = nextRows.filter((row) => previousById.has(row.id) && !turnoverChangeSummary(previousById.get(row.id), row));
+  const removedRows = previousReportRows.filter((row) => !nextById.has(row.id));
+
+  return {
+    nextRows,
+    summary: {
+      arrivals: nextRows.length,
+      departures: departures.length,
+      sameDay: nextRows.filter((row) => row.isOccupied).length,
+      newRows: newRows.length,
+      changedRows: changedRows.length,
+      unchangedRows: unchangedRows.length,
+      removedRows: removedRows.length
+    },
+    preview: [...newRows, ...changedRows].slice(0, 8)
+  };
+}
+
+async function analyzeReportFiles(files, currentRows) {
+  if (!files.arrivals || !files.departures) {
+    throw new Error("צריך לבחור גם דוח כניסות וגם דוח עזיבות");
+  }
+  const [arrivalSheetRows, departureSheetRows] = await Promise.all([
+    readReportSheet(files.arrivals),
+    readReportSheet(files.departures)
+  ]);
+  return buildReportAnalysis(arrivalSheetRows, departureSheetRows, currentRows);
 }
 
 function turnoverDetails(row) {
@@ -198,7 +363,7 @@ export default function App() {
   const [loading, setLoading] = useState(!cachedSnapshot?.data);
   const [error, setError] = useState("");
   const [scheduleNotice, setScheduleNotice] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [pendingActions, setPendingActions] = useState(() => new Set());
   const [actionNotice, setActionNotice] = useState(null);
   const pendingWritesRef = useRef(0);
   const previousTurnoversRef = useRef(cachedSnapshot?.data?.turnovers || []);
@@ -243,6 +408,17 @@ export default function App() {
   }, [cachedSnapshot]);
 
   useEffect(() => {
+    if (!user) return undefined;
+
+    const interval = window.setInterval(() => {
+      if (pendingWritesRef.current > 0) return;
+      loadData().catch(() => {});
+    }, 5000);
+
+    return () => window.clearInterval(interval);
+  }, [user]);
+
+  useEffect(() => {
     const tabs = tabSets[user?.role || "admin"] || tabSets.admin;
     if (!tabs.includes(tab)) setTab(tabs[0]);
   }, [user, tab]);
@@ -255,9 +431,24 @@ export default function App() {
     });
   };
 
-  const runInBackground = (operation, messages) => {
+  const markPending = (key, pending) => {
+    if (!key) return;
+    setPendingActions((current) => {
+      const next = new Set(current);
+      if (pending) {
+        next.add(key);
+      } else {
+        next.delete(key);
+      }
+      return next;
+    });
+  };
+
+  const isPending = (key) => pendingActions.has(key);
+
+  const runInBackground = (operation, messages, actionKey) => {
     pendingWritesRef.current += 1;
-    setSaving(true);
+    markPending(actionKey, true);
     setActionNotice({ type: "pending", text: messages.pending });
 
     Promise.resolve()
@@ -277,11 +468,12 @@ export default function App() {
       })
       .finally(() => {
         pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
-        if (pendingWritesRef.current === 0) setSaving(false);
+        markPending(actionKey, false);
       });
   };
 
   const actions = {
+    isPending,
     notice: (text, type = "success") => {
       setActionNotice({ type, text });
       window.setTimeout(() => {
@@ -289,15 +481,35 @@ export default function App() {
       }, 1600);
     },
     add: (table, record) => {
+      const actionKey = `add:${table}`;
+      const notification = table === TABLES.turnovers
+        ? {
+          id: newId(),
+          for: "house",
+          room: "סידור עבודה",
+          date: today(),
+          message: turnoverCreatedSummary(record),
+          read: false,
+          createdAt: nowIso(),
+          pushSent: ""
+        }
+        : null;
+
       applyOptimisticData((current) => ({
         ...current,
-        [table]: [...(current[table] || []), record]
+        [table]: [...(current[table] || []), record],
+        notifications: notification ? [...(current.notifications || []), notification] : current.notifications
       }));
-      runInBackground(() => addRecord(table, record), { pending: "נשלח...", success: "נשמר" });
+
+      runInBackground(async () => {
+        await addRecord(table, record);
+        if (notification) await addRecord(TABLES.notifications, notification);
+      }, { pending: "נשלח...", success: "נשמר" }, actionKey);
       setError("");
       return Promise.resolve();
     },
     update: (table, record) => {
+      const actionKey = `update:${table}:${record.id}`;
       const before = table === TABLES.turnovers ? data.turnovers.find((row) => row.id === record.id) : null;
       const summary = table === TABLES.turnovers ? turnoverChangeSummary(before, record) : "";
       const notification = summary
@@ -322,16 +534,50 @@ export default function App() {
       runInBackground(async () => {
         await updateRecord(table, record);
         if (notification) await addRecord(TABLES.notifications, notification);
-      }, { pending: "נשלח עדכון...", success: "עודכן" });
+      }, { pending: "נשלח עדכון...", success: "עודכן" }, actionKey);
+      setError("");
+      return Promise.resolve();
+    },
+    syncLocalReports: (nextReportRows, summary) => {
+      const message = [
+        `דוחות מקומיים עודכנו`,
+        `${summary.newRows} חדשים`,
+        `${summary.changedRows} שונו`,
+        `${summary.removedRows} הוסרו`
+      ].join(" · ");
+      const notifications = ["house", "bookings", "admin"].map((role) => ({
+        id: newId(),
+        for: role,
+        room: "דוחות",
+        date: today(),
+        message,
+        read: false,
+        createdAt: nowIso(),
+        pushSent: ""
+      }));
+
+      applyOptimisticData((current) => ({
+        ...current,
+        turnovers: [
+          ...(current.turnovers || []).filter((row) => !isReportTurnover(row)),
+          ...nextReportRows
+        ],
+        notifications: [...(current.notifications || []), ...notifications]
+      }));
+      setActionNotice({ type: "success", text: "הדוחות עודכנו מקומית" });
+      window.setTimeout(() => {
+        setActionNotice((current) => (current?.text === "הדוחות עודכנו מקומית" ? null : current));
+      }, 1800);
       setError("");
       return Promise.resolve();
     },
     remove: (table, id) => {
+      const actionKey = `remove:${table}:${id}`;
       applyOptimisticData((current) => ({
         ...current,
         [table]: (current[table] || []).filter((row) => row.id !== id)
       }));
-      runInBackground(() => deleteRecord(table, id), { pending: "מוחק...", success: "נמחק" });
+      runInBackground(() => deleteRecord(table, id), { pending: "מוחק...", success: "נמחק" }, actionKey);
       setError("");
       return Promise.resolve();
     }
@@ -376,6 +622,7 @@ export default function App() {
   }
 
   const tabs = tabSets[user.role] || tabSets.admin;
+  const saving = pendingActions.size > 0;
 
   return (
     <main className="screen app-shell">
@@ -387,9 +634,12 @@ export default function App() {
             {user.display || user.username} · {roleLabels[user.role] || user.role}
           </p>
         </div>
-        <button className="ghost" type="button" onClick={logout}>
-          יציאה
-        </button>
+        <div className="header-actions">
+          {saving && <span className="sync-pill"><span className="tiny-spinner" />מסנכרן</span>}
+          <button className="ghost" type="button" onClick={logout}>
+            יציאה
+          </button>
+        </div>
       </header>
 
       {error && <div className="notice error">שגיאה: {error}</div>}
@@ -634,8 +884,8 @@ function TurnoversPanel({ rows, saving, user, actions }) {
               הערות
               <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
             </label>
-            <button className="primary" disabled={saving || !form.room.trim()} type="submit">
-              הוסף סידור
+            <button className="primary" disabled={!form.room.trim() || actions.isPending("add:turnovers")} type="submit">
+              {actions.isPending("add:turnovers") ? "שומר..." : "הוסף סידור"}
             </button>
           </form>
           <TurnoverList title="פתוחים" rows={open} allRows={rows} actions={actions} user={user} canEdit />
@@ -702,8 +952,8 @@ function BookingTurnoversPanel({ rows, saving, actions }) {
   return (
     <section className="panel booking-board">
       <SectionHead
-        title={view === "schedule" ? "סידור עבודה" : "חדרים"}
-        badge={view === "calendar" ? "יומן חודשי" : view === "today" ? `${todayRows.length} היום` : view === "future" ? `${futureRows.length} עתידיים` : "הזנה"}
+        title={view === "schedule" ? "סידור עבודה" : view === "reports" ? "דוחות" : "חדרים"}
+        badge={view === "calendar" ? "יומן חודשי" : view === "today" ? `${todayRows.length} היום` : view === "future" ? `${futureRows.length} עתידיים` : view === "reports" ? "טעינה מקומית" : "הזנה"}
       />
 
       <div className="house-switch booking-switch">
@@ -718,6 +968,9 @@ function BookingTurnoversPanel({ rows, saving, actions }) {
         </button>
         <button className={view === "future" ? "active" : ""} type="button" onClick={() => setView("future")}>
           עתידי
+        </button>
+        <button className={view === "reports" ? "active" : ""} type="button" onClick={() => setView("reports")}>
+          דוחות
         </button>
       </div>
 
@@ -779,14 +1032,148 @@ function BookingTurnoversPanel({ rows, saving, actions }) {
             <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
           </label>
 
-          <button className="primary" disabled={saving || !form.room} type="submit">
-            שמור סידור עבודה
+          <button className="primary" disabled={!form.room || actions.isPending("add:turnovers")} type="submit">
+            {actions.isPending("add:turnovers") ? "שומר..." : "שמור סידור עבודה"}
           </button>
         </form>
+      ) : view === "reports" ? (
+        <ReportsImportPanel rows={rows} actions={actions} />
       ) : (
         <TurnoverList title={view === "today" ? "חדרים להיום" : "חדרים עתידיים"} rows={visibleRows} allRows={rows} actions={actions} readOnly canEdit />
       )}
     </section>
+  );
+}
+
+function ReportsImportPanel({ rows, actions }) {
+  const [files, setFiles] = useState({ arrivals: null, departures: null });
+  const [analysis, setAnalysis] = useState(null);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const setFile = (key, file) => {
+    setFiles((current) => ({ ...current, [key]: file }));
+    setAnalysis(null);
+    setError("");
+    setStatus("");
+  };
+
+  const analyze = async () => {
+    setBusy(true);
+    setError("");
+    setStatus("בודק דוחות...");
+    try {
+      const result = await analyzeReportFiles(files, rows);
+      setAnalysis(result);
+      setStatus("הבדיקה הסתיימה");
+    } catch (err) {
+      setError(err.message || String(err));
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyLocal = async () => {
+    if (!analysis) return;
+    setBusy(true);
+    setError("");
+    setStatus("מעדכן מקומית...");
+    try {
+      await actions.syncLocalReports(analysis.nextRows, analysis.summary);
+      setStatus("עודכן מקומית בלבד");
+    } catch (err) {
+      setError(err.message || String(err));
+      setStatus("");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="reports-import">
+      <div className="notice compact">
+        העדכון כאן מקומי בלבד. הוא לא שולח נתונים לשיטס ולא מעדכן סקריפט.
+      </div>
+
+      <div className="report-file-grid">
+        <label className="report-file">
+          <span>דוח כניסות</span>
+          <input accept=".xlsx,.xls" type="file" onChange={(event) => setFile("arrivals", event.target.files?.[0] || null)} />
+          <strong>{files.arrivals?.name || "לא נבחר קובץ"}</strong>
+        </label>
+        <label className="report-file">
+          <span>דוח עזיבות</span>
+          <input accept=".xlsx,.xls" type="file" onChange={(event) => setFile("departures", event.target.files?.[0] || null)} />
+          <strong>{files.departures?.name || "לא נבחר קובץ"}</strong>
+        </label>
+      </div>
+
+      <div className="actions report-actions">
+        <button className="primary" disabled={busy || !files.arrivals || !files.departures} type="button" onClick={analyze}>
+          {busy ? "בודק..." : "בדוק שינויים"}
+        </button>
+        <button disabled={busy || !analysis || (!analysis.summary.newRows && !analysis.summary.changedRows && !analysis.summary.removedRows)} type="button" onClick={applyLocal}>
+          {busy ? "מעדכן..." : "החל מקומית"}
+        </button>
+      </div>
+
+      {status && <div className="summary-line">{status}</div>}
+      {error && <div className="notice error compact">{error}</div>}
+
+      {analysis && (
+        <>
+          <div className="report-summary">
+            <div className="mini-metric">
+              <span>כניסות</span>
+              <strong>{analysis.summary.arrivals}</strong>
+            </div>
+            <div className="mini-metric">
+              <span>עזיבות</span>
+              <strong>{analysis.summary.departures}</strong>
+            </div>
+            <div className="mini-metric">
+              <span>החלפות</span>
+              <strong>{analysis.summary.sameDay}</strong>
+            </div>
+            <div className="mini-metric">
+              <span>חדשים</span>
+              <strong>{analysis.summary.newRows}</strong>
+            </div>
+            <div className="mini-metric">
+              <span>שונו</span>
+              <strong>{analysis.summary.changedRows}</strong>
+            </div>
+            <div className="mini-metric">
+              <span>ללא שינוי</span>
+              <strong>{analysis.summary.unchangedRows}</strong>
+            </div>
+            <div className="mini-metric">
+              <span>יוסרו</span>
+              <strong>{analysis.summary.removedRows}</strong>
+            </div>
+          </div>
+
+          <ListBlock title="תצוגה מקדימה" empty="אין רשומות חדשות או משתנות">
+            {analysis.preview.map((row) => (
+              <article className="list-item" key={row.id}>
+                <div>
+                  <strong>{row.room}</strong>
+                  <p>
+                    <DateText>{formatDisplayDate(row.date)}</DateText> · {row.guests || 0} אורחים
+                    {row.children ? ` · ${row.children} ילדים` : ""}
+                    {row.babies ? ` · ${row.babies} תינוקות` : ""}
+                    {row.isOccupied ? " · החלפה" : ""}
+                    {row.notes ? ` · ${row.notes}` : ""}
+                  </p>
+                </div>
+              </article>
+            ))}
+          </ListBlock>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -942,18 +1329,18 @@ function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, 
                   </button>
                 )}
                 {!readOnly && !isDone(row) && (
-                  <button type="button" onClick={() => actions.update(TABLES.turnovers, { ...row, status: "completed", completedAt: nowIso() })}>
-                    בוצע
+                  <button type="button" disabled={actions.isPending(`update:${TABLES.turnovers}:${row.id}`)} onClick={() => actions.update(TABLES.turnovers, { ...row, status: "completed", completedAt: nowIso() })}>
+                    {actions.isPending(`update:${TABLES.turnovers}:${row.id}`) ? "מסמן..." : "בוצע"}
                   </button>
                 )}
                 {!readOnly && !isDone(row) && (
-                  <button className={row.gardenDone ? "success-soft" : ""} type="button" onClick={() => actions.update(TABLES.turnovers, { ...row, gardenDone: true, gardenDoneAt: nowIso() })}>
-                    {row.gardenDone ? "גינה ✓" : "גינה"}
+                  <button className={row.gardenDone ? "success-soft" : ""} type="button" disabled={actions.isPending(`update:${TABLES.turnovers}:${row.id}`)} onClick={() => actions.update(TABLES.turnovers, { ...row, gardenDone: true, gardenDoneAt: nowIso() })}>
+                    {actions.isPending(`update:${TABLES.turnovers}:${row.id}`) ? "מסמן..." : row.gardenDone ? "גינה ✓" : "גינה"}
                   </button>
                 )}
                 {!readOnly && (
-                  <button className="danger" type="button" onClick={() => actions.remove(TABLES.turnovers, row.id)}>
-                    מחק
+                  <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.turnovers}:${row.id}`)} onClick={() => actions.remove(TABLES.turnovers, row.id)}>
+                    {actions.isPending(`remove:${TABLES.turnovers}:${row.id}`) ? "מוחק..." : "מחק"}
                   </button>
                 )}
               </div>
@@ -1043,8 +1430,8 @@ function TurnoverEditForm({ row, rows, actions, onCancel, onSaved }) {
         <textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
       </label>
       <div className="actions">
-        <button className="primary" type="submit">
-          שמור שינוי
+        <button className="primary" disabled={actions.isPending(`update:${TABLES.turnovers}:${row.id}`)} type="submit">
+          {actions.isPending(`update:${TABLES.turnovers}:${row.id}`) ? "שומר..." : "שמור שינוי"}
         </button>
         <button className="ghost" type="button" onClick={onCancel}>
           בטל
@@ -1054,7 +1441,7 @@ function TurnoverEditForm({ row, rows, actions, onCancel, onSaved }) {
   );
 }
 
-function HouseTurnoversPanel({ rows, saving, actions }) {
+function HouseTurnoversPanel({ rows, saving, user, actions }) {
   const [view, setView] = useState("today");
   const todayDate = today();
   const weekEnd = addDays(todayDate, 7);
@@ -1104,8 +1491,11 @@ function HouseTurnoversPanel({ rows, saving, actions }) {
                 key={row.id}
                 row={row}
                 saving={saving}
+                user={user}
+                completing={actions.isPending(`update:${TABLES.turnovers}:${row.id}`)}
                 showComplete={view === "today"}
                 onComplete={() => actions.update(TABLES.turnovers, { ...row, status: "completed", completedAt: nowIso() })}
+                actions={actions}
               />
             ))
           )}
@@ -1114,7 +1504,9 @@ function HouseTurnoversPanel({ rows, saving, actions }) {
     </section>
   );
 }
-function HouseRoomCard({ row, saving, onComplete, showComplete = true }) {
+function HouseRoomCard({ row, user, completing, onComplete, actions, showComplete = true }) {
+  const [issueText, setIssueText] = useState("");
+  const [issueOpen, setIssueOpen] = useState(false);
   const childParts = [
     row.children ? `${row.children} ילדים` : "",
     row.babies ? `${row.babies} תינוקות` : ""
@@ -1125,6 +1517,48 @@ function HouseRoomCard({ row, saving, onComplete, showComplete = true }) {
     row.isReturning ? "לקוח חוזר" : "לקוח חדש",
     row.isOccupied ? "החלפה" : ""
   ].filter(Boolean);
+  const issuePending = actions.isPending("add:maintenance") || actions.isPending("add:notifications");
+
+  const submitIssue = async () => {
+    const text = issueText.trim();
+    if (!text) {
+      setIssueOpen(true);
+      return;
+    }
+
+    const createdAt = nowIso();
+    const reporter = user?.display || user?.username || "משק בית";
+    const title = `תקלה בחדר ${row.room || ""}`.trim();
+
+    await actions.add(TABLES.maintenance, {
+      id: newId(),
+      title,
+      description: text,
+      location: row.room || "",
+      dueDate: "",
+      urgency: "דחוף",
+      status: "open",
+      source: "house",
+      createdByName: reporter,
+      createdAt,
+      completedAt: ""
+    });
+
+    await actions.add(TABLES.notifications, {
+      id: newId(),
+      for: "maint",
+      room: row.room || "משק בית",
+      date: today(),
+      message: `${reporter} דיווח/ה על תקלה בחדר ${row.room || ""}: ${text}`.trim(),
+      read: false,
+      createdAt,
+      pushSent: ""
+    });
+
+    setIssueText("");
+    setIssueOpen(false);
+    actions.notice("התקלה נשלחה לאחזקה");
+  };
 
   return (
     <article className={row.isOccupied ? "house-room occupied" : "house-room"}>
@@ -1153,10 +1587,31 @@ function HouseRoomCard({ row, saving, onComplete, showComplete = true }) {
 
       {row.notes && <div className="house-note">{row.notes}</div>}
 
+      <div className={`house-issue ${issueOpen || issueText ? "open" : ""}`}>
+        <button className="danger-soft house-issue-toggle" type="button" onClick={() => setIssueOpen((current) => !current)}>
+          {issueOpen ? "סגור דיווח תקלה" : "דווח תקלה"}
+        </button>
+        {(issueOpen || issueText) && (
+          <div className="house-issue-form">
+            <label>
+              מה דורש תשומת לב
+              <textarea
+                value={issueText}
+                onChange={(event) => setIssueText(event.target.value)}
+                placeholder="לדוגמה: נזילה, מזגן, מנורה, ריח, ניקיון נוסף..."
+              />
+            </label>
+            <button className="danger-soft" disabled={issuePending || !issueText.trim()} type="button" onClick={submitIssue}>
+              {issuePending ? "שולח..." : "שלח לאחזקה"}
+            </button>
+          </div>
+        )}
+      </div>
+
       {showComplete && (
         <div className="house-actions">
-          <button className="primary" disabled={saving} type="button" onClick={onComplete}>
-            סיימתי את החדר
+          <button className="primary" disabled={completing} type="button" onClick={onComplete}>
+            {completing ? "מסמן..." : "סיימתי את החדר"}
           </button>
         </div>
       )}
@@ -1215,8 +1670,8 @@ function MaintenancePanel({ rows, turnovers, saving, user, actions }) {
               </p>
             </div>
             <div className="actions">
-              <button type="button" disabled={saving} onClick={() => actions.update(TABLES.turnovers, { ...row, gardenDone: true, gardenDoneAt: nowIso() })}>
-                בוצע
+              <button type="button" disabled={actions.isPending(`update:${TABLES.turnovers}:${row.id}`)} onClick={() => actions.update(TABLES.turnovers, { ...row, gardenDone: true, gardenDoneAt: nowIso() })}>
+                {actions.isPending(`update:${TABLES.turnovers}:${row.id}`) ? "מסמן..." : "בוצע"}
               </button>
             </div>
           </article>
@@ -1242,8 +1697,8 @@ function MaintenancePanel({ rows, turnovers, saving, user, actions }) {
           פירוט
           <textarea value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
         </label>
-        <button className="primary" disabled={saving || !form.title.trim()} type="submit">
-          הוסף לאחזקה
+        <button className="primary" disabled={!form.title.trim() || actions.isPending("add:maintenance")} type="submit">
+          {actions.isPending("add:maintenance") ? "שומר..." : "הוסף לאחזקה"}
         </button>
       </form>
       <MaintenanceList title="פתוחות" rows={open} actions={actions} />
@@ -1266,12 +1721,12 @@ function MaintenanceList({ title, rows, actions }) {
           </div>
           <div className="actions">
             {row.status !== "done" && (
-              <button type="button" onClick={() => actions.update(TABLES.maintenance, { ...row, status: "done", completedAt: nowIso() })}>
-                בוצע
+              <button type="button" disabled={actions.isPending(`update:${TABLES.maintenance}:${row.id}`)} onClick={() => actions.update(TABLES.maintenance, { ...row, status: "done", completedAt: nowIso() })}>
+                {actions.isPending(`update:${TABLES.maintenance}:${row.id}`) ? "מסמן..." : "בוצע"}
               </button>
             )}
-            <button className="danger" type="button" onClick={() => actions.remove(TABLES.maintenance, row.id)}>
-              מחק
+            <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.maintenance}:${row.id}`)} onClick={() => actions.remove(TABLES.maintenance, row.id)}>
+              {actions.isPending(`remove:${TABLES.maintenance}:${row.id}`) ? "מוחק..." : "מחק"}
             </button>
           </div>
         </article>
@@ -1355,8 +1810,8 @@ function ShoppingPanel({ rows, saving, user, users, actions }) {
           הערה
           <input value={form.note} onChange={(event) => setForm({ ...form, note: event.target.value })} />
         </label>
-        <button className="primary" disabled={saving || !form.item.trim()} type="submit">
-          הוסף לקניות
+        <button className="primary" disabled={!form.item.trim() || actions.isPending("add:shopping")} type="submit">
+          {actions.isPending("add:shopping") ? "שומר..." : "הוסף לקניות"}
         </button>
       </form>
       <ShoppingList title="ממתין לרכישה" rows={requested} actions={actions} onPurchase={approvePurchase} />
@@ -1381,12 +1836,12 @@ function ShoppingList({ title, rows, actions, onPurchase }) {
           </div>
           <div className="actions">
             {row.status !== "purchased" && (
-              <button type="button" onClick={() => onPurchase(row)}>
-                נרכש
+              <button type="button" disabled={actions.isPending(`update:${TABLES.shopping}:${row.id}`)} onClick={() => onPurchase(row)}>
+                {actions.isPending(`update:${TABLES.shopping}:${row.id}`) ? "מסמן..." : "נרכש"}
               </button>
             )}
-            <button className="danger" type="button" onClick={() => actions.remove(TABLES.shopping, row.id)}>
-              מחק
+            <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.shopping}:${row.id}`)} onClick={() => actions.remove(TABLES.shopping, row.id)}>
+              {actions.isPending(`remove:${TABLES.shopping}:${row.id}`) ? "מוחק..." : "מחק"}
             </button>
           </div>
         </article>
@@ -1441,8 +1896,8 @@ function HoursPanel({ rows, saving, user, users = [], actions }) {
             </label>
           </div>
           <div className="summary-line">סה"כ משמרת: {total.toFixed(1)} שעות</div>
-          <button className="primary" disabled={saving || total <= 0} type="submit">
-            שמור שעות
+          <button className="primary" disabled={total <= 0 || actions.isPending("add:hours")} type="submit">
+            {actions.isPending("add:hours") ? "שומר..." : "שמור שעות"}
           </button>
         </form>
       )}
@@ -1466,8 +1921,8 @@ function HoursPanel({ rows, saving, user, users = [], actions }) {
               </div>
               <div className="actions">
                 <span className="pill subtle">{row.totalHours} שעות</span>
-                <button className="danger" type="button" onClick={() => actions.remove(TABLES.hours, row.id)}>
-                  מחק
+                <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.hours}:${row.id}`)} onClick={() => actions.remove(TABLES.hours, row.id)}>
+                  {actions.isPending(`remove:${TABLES.hours}:${row.id}`) ? "מוחק..." : "מחק"}
                 </button>
               </div>
             </article>
@@ -1559,8 +2014,8 @@ function NotificationsPanel({ rows, turnovers, user, actions }) {
                   <p>{row.message}</p>
                 </div>
                 <div className="actions">
-                  <button type="button" onClick={() => actions.update(TABLES.notifications, { ...row, read: true })}>
-                    נקרא
+                  <button type="button" disabled={actions.isPending(`update:${TABLES.notifications}:${row.id}`)} onClick={() => actions.update(TABLES.notifications, { ...row, read: true })}>
+                    {actions.isPending(`update:${TABLES.notifications}:${row.id}`) ? "מסמן..." : "נקרא"}
                   </button>
                 </div>
               </article>
@@ -1579,11 +2034,11 @@ function NotificationsPanel({ rows, turnovers, user, actions }) {
                 </p>
               </div>
               <div className="actions">
-                <button type="button" onClick={() => actions.update(TABLES.notifications, { ...row, read: true })}>
-                  נקרא
+                <button type="button" disabled={actions.isPending(`update:${TABLES.notifications}:${row.id}`)} onClick={() => actions.update(TABLES.notifications, { ...row, read: true })}>
+                  {actions.isPending(`update:${TABLES.notifications}:${row.id}`) ? "מסמן..." : "נקרא"}
                 </button>
-                <button className="danger" type="button" onClick={() => actions.remove(TABLES.notifications, row.id)}>
-                  מחק
+                <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.notifications}:${row.id}`)} onClick={() => actions.remove(TABLES.notifications, row.id)}>
+                  {actions.isPending(`remove:${TABLES.notifications}:${row.id}`) ? "מוחק..." : "מחק"}
                 </button>
               </div>
             </article>
@@ -1653,17 +2108,17 @@ function PoolPanel({ logs, equipment, saving, user, actions }) {
               <strong>{treatmentState.title}</strong>
               <span>{treatmentState.subtitle}</span>
             </div>
-            <button className="pool-main-action" disabled={saving} type="button" onClick={completeTreatment}>
-              סיימתי טיפול בבריכה
+            <button className="pool-main-action" disabled={actions.isPending("add:pool_logs")} type="button" onClick={completeTreatment}>
+              {actions.isPending("add:pool_logs") ? "שומר טיפול..." : "סיימתי טיפול בבריכה"}
             </button>
           </div>
 
           <div className="pool-actions">
-            <button className={chlorineSent ? "success-soft" : "danger-soft"} disabled={saving} type="button" onClick={requestChlorine}>
-              {chlorineSent ? "נשלח לאלדד" : "בקש כלור"}
+            <button className={chlorineSent ? "success-soft" : "danger-soft"} disabled={actions.isPending("add:shopping")} type="button" onClick={requestChlorine}>
+              {actions.isPending("add:shopping") ? "שולח..." : chlorineSent ? "נשלח לאלדד" : "בקש כלור"}
             </button>
-            <button className="purple-soft" disabled={saving} type="button" onClick={registerUvReplacement}>
-              רישום החלפת מנורות UV
+            <button className="purple-soft" disabled={actions.isPending("add:pool_logs")} type="button" onClick={registerUvReplacement}>
+              {actions.isPending("add:pool_logs") ? "שומר..." : "רישום החלפת מנורות UV"}
             </button>
           </div>
         </>
