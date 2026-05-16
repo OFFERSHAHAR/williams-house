@@ -1086,8 +1086,8 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
     setStatus("שומר בשיטס...");
     try {
       const result = await actions.syncReports(analysis.nextRows, analysis.summary);
-      const saved = result?.newRows || result?.changedRows || result?.removedRows || result?.manualConflicts
-        ? `${result.newRows || 0} חדשים · ${result.changedRows || 0} שונו · ${result.removedRows || 0} הוסרו · ${result.unchangedRows || 0} לא נכתבו שוב · ${result.manualConflicts || 0} התנגשויות ידניות`
+      const saved = result?.newRows || result?.changedRows || result?.removedRows || result?.manualOverrides
+        ? `${result.newRows || 0} חדשים · ${result.changedRows || 0} שונו · ${result.removedRows || 0} הוסרו · ${result.unchangedRows || 0} לא נכתבו שוב · ${result.manualOverrides || 0} ידניות נדרסו`
         : "לא נמצאו שינויים לכתיבה";
       setStatus(`הבדיקה הסתיימה והיומנים עודכנו · ${saved}`);
     } catch (err) {
@@ -1122,8 +1122,8 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
           <strong>{lastSync?.skippedRows ?? 0}</strong>
         </div>
         <div className="mini-metric">
-          <span>התנגשויות ידניות</span>
-          <strong>{lastSync?.manualConflicts ?? 0}</strong>
+          <span>ידניות נדרסו</span>
+          <strong>{lastSync?.manualOverrides ?? 0}</strong>
         </div>
       </div>
 

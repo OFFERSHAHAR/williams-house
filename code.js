@@ -27,7 +27,7 @@ const SHEETS = {
   hours:          ['id','userId','userName','date','startTime','endTime','totalHours','createdAt'],
   pool_logs:      ['id','type','doneAt','doneBy','notes'],
   pool_equipment: ['id','name','lastReplaced','notes'],
-  report_sync:    ['id','syncedAt','arrivals','departures','sameDay','newRows','changedRows','unchangedRows','removedRows','writtenRows','skippedRows','manualConflicts','totalRows','status','message'],
+  report_sync:    ['id','syncedAt','arrivals','departures','sameDay','newRows','changedRows','unchangedRows','removedRows','writtenRows','skippedRows','manualOverrides','totalRows','status','message'],
 };
 
 const DEFAULT_USERS = [
@@ -202,7 +202,7 @@ function readSheet(name) {
         h === 'removedRows' ||
         h === 'writtenRows' ||
         h === 'skippedRows' ||
-        h === 'manualConflicts' ||
+        h === 'manualOverrides' ||
         h === 'totalRows'
       ) {
         v = (v === '' || v === null) ? null : Number(v);
@@ -298,12 +298,16 @@ function roomDateKey_(record) {
   return room && date ? room + '|' + date : '';
 }
 
+function recordMonthKey_(record) {
+  return String(record.date || '').slice(0, 7);
+}
+
 function createReportSyncNotifications_(summary) {
   const hasChanges =
     Number(summary.newRows || 0) > 0 ||
     Number(summary.changedRows || 0) > 0 ||
     Number(summary.removedRows || 0) > 0 ||
-    Number(summary.manualConflicts || 0) > 0;
+    Number(summary.manualOverrides || 0) > 0;
 
   if (!hasChanges) return [];
 
@@ -403,7 +407,7 @@ function appendReportSync_(summary) {
     removedRows: Number(summary.removedRows || 0),
     writtenRows: Number(summary.writtenRows || 0),
     skippedRows: Number(summary.skippedRows || 0),
-    manualConflicts: Number(summary.manualConflicts || 0),
+    manualOverrides: Number(summary.manualOverrides || 0),
     totalRows: Number(summary.totalRows || 0),
     status: summary.status || 'ok',
     message: summary.message || ''
@@ -429,10 +433,19 @@ function syncReportTurnovers(rows, summary) {
       record: rowToRecord_(values, headers)
     }))
     : [];
-  const currentReportRows = currentRows.filter(item => isReportTurnover_(item.values, headers));
+  const reportMonths = {};
+  rows.forEach(record => {
+    const month = recordMonthKey_(record);
+    if (month) reportMonths[month] = true;
+  });
+  const isInReportMonth = item => Boolean(reportMonths[recordMonthKey_(item.record)]);
+  const currentReportRows = currentRows
+    .filter(item => isReportTurnover_(item.values, headers))
+    .filter(isInReportMonth);
   const manualRowsByRoomDate = {};
   currentRows
     .filter(item => !isReportTurnover_(item.values, headers))
+    .filter(isInReportMonth)
     .forEach(item => {
       const key = roomDateKey_(item.record);
       if (key) manualRowsByRoomDate[key] = item;
@@ -443,22 +456,22 @@ function syncReportTurnovers(rows, summary) {
   });
 
   const incomingById = {};
-  const manualConflicts = [];
+  const manualOverrides = [];
   const incomingRows = rows.map(record => {
     const row = headers.map(h => {
       if (h === 'reportSource') return 'report';
       return record[h] === undefined || record[h] === null ? '' : record[h];
     });
     const nextRecord = rowToRecord_(row, headers);
-    const manualConflict = manualRowsByRoomDate[roomDateKey_(nextRecord)];
-    if (manualConflict) {
-      manualConflicts.push({
+    const manualOverride = manualRowsByRoomDate[roomDateKey_(nextRecord)];
+    if (manualOverride) {
+      manualOverrides.push({
         id: String(row[idIndex] || ''),
         room: nextRecord.room || '',
         date: nextRecord.date || '',
-        manualId: manualConflict.record.id || ''
+        manualId: manualOverride.record.id || '',
+        rowNumber: manualOverride.rowNumber
       });
-      return null;
     }
     incomingById[String(row[idIndex] || '')] = true;
     return {
@@ -502,7 +515,8 @@ function syncReportTurnovers(rows, summary) {
       .setValues(newRows.map(item => item.row));
   }
 
-  removedRows
+  manualOverrides
+    .concat(removedRows)
     .slice()
     .sort((a, b) => b.rowNumber - a.rowNumber)
     .forEach(item => {
@@ -519,11 +533,11 @@ function syncReportTurnovers(rows, summary) {
     removedRows: removedRows.length,
     writtenRows: newRows.length + changedRows.length,
     skippedRows: unchangedRows,
-    manualConflicts: manualConflicts.length,
+    manualOverrides: manualOverrides.length,
     totalRows: rows.length,
-    status: manualConflicts.length ? 'conflicts' : 'ok',
-    message: manualConflicts.length
-      ? 'Skipped report rows that conflict with manual entries'
+    status: manualOverrides.length ? 'manual-overrides' : 'ok',
+    message: manualOverrides.length
+      ? 'Report rows replaced matching manual entries'
       : 'Reports synced to Sheets'
   };
 
@@ -542,7 +556,7 @@ function syncReportTurnovers(rows, summary) {
     removedRows: serverSummary.removedRows,
     writtenRows: serverSummary.writtenRows,
     skippedRows: serverSummary.skippedRows,
-    manualConflicts: serverSummary.manualConflicts,
+    manualOverrides: serverSummary.manualOverrides,
     total: rows.length,
     notifications: notifications.length,
     syncRecord: syncRecord
