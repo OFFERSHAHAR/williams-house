@@ -51,6 +51,10 @@ export async function deleteRecord(table, id) {
   return writeRecord({ table, op: "delete", id });
 }
 
+export async function syncReportTurnovers(rows, summary) {
+  return writeRecord({ table: "turnovers", op: "syncReports", rows, summary });
+}
+
 async function writeRecord(payload) {
   const response = await fetch(API_URL, {
     method: "POST",

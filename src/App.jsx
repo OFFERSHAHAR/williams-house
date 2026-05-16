@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
-import { addRecord, deleteRecord, readAll, readCachedData, saveCachedData, updateRecord } from "./api";
+import { addRecord, deleteRecord, readAll, readCachedData, saveCachedData, syncReportTurnovers, updateRecord } from "./api";
 import { TABLES } from "./config";
 import "./styles.css";
 
@@ -538,38 +538,36 @@ export default function App() {
       setError("");
       return Promise.resolve();
     },
-    syncLocalReports: (nextReportRows, summary) => {
-      const message = [
-        `דוחות מקומיים עודכנו`,
-        `${summary.newRows} חדשים`,
-        `${summary.changedRows} שונו`,
-        `${summary.removedRows} הוסרו`
-      ].join(" · ");
-      const notifications = ["house", "bookings", "admin"].map((role) => ({
-        id: newId(),
-        for: role,
-        room: "דוחות",
-        date: today(),
-        message,
-        read: false,
-        createdAt: nowIso(),
-        pushSent: ""
-      }));
-
+    syncReports: async (nextReportRows, summary) => {
+      const actionKey = "sync:reports";
+      pendingWritesRef.current += 1;
+      markPending(actionKey, true);
+      setActionNotice({ type: "pending", text: "שומר דוחות בשיטס..." });
       applyOptimisticData((current) => ({
         ...current,
         turnovers: [
           ...(current.turnovers || []).filter((row) => !isReportTurnover(row)),
           ...nextReportRows
-        ],
-        notifications: [...(current.notifications || []), ...notifications]
+        ]
       }));
-      setActionNotice({ type: "success", text: "הדוחות עודכנו מקומית" });
-      window.setTimeout(() => {
-        setActionNotice((current) => (current?.text === "הדוחות עודכנו מקומית" ? null : current));
-      }, 1800);
-      setError("");
-      return Promise.resolve();
+      try {
+        await syncReportTurnovers(nextReportRows, summary);
+        await loadData();
+        setActionNotice({ type: "success", text: "הדוחות נשמרו בשיטס" });
+        window.setTimeout(() => {
+          setActionNotice((current) => (current?.text === "הדוחות נשמרו בשיטס" ? null : current));
+        }, 1800);
+        setError("");
+      } catch (err) {
+        const message = err.message || String(err);
+        setActionNotice({ type: "error", text: `שגיאה: ${message}` });
+        setError(message);
+        await loadData().catch(() => {});
+        throw err;
+      } finally {
+        pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
+        markPending(actionKey, false);
+      }
     },
     remove: (table, id) => {
       const actionKey = `remove:${table}:${id}`;
@@ -1075,14 +1073,14 @@ function ReportsImportPanel({ rows, actions }) {
     }
   };
 
-  const applyLocal = async () => {
+  const applyToSheets = async () => {
     if (!analysis) return;
     setBusy(true);
     setError("");
-    setStatus("מעדכן מקומית...");
+    setStatus("שומר בשיטס...");
     try {
-      await actions.syncLocalReports(analysis.nextRows, analysis.summary);
-      setStatus("עודכן מקומית בלבד");
+      await actions.syncReports(analysis.nextRows, analysis.summary);
+      setStatus("נשמר בשיטס והיומנים עודכנו");
     } catch (err) {
       setError(err.message || String(err));
       setStatus("");
@@ -1094,7 +1092,7 @@ function ReportsImportPanel({ rows, actions }) {
   return (
     <div className="reports-import">
       <div className="notice compact">
-        העדכון כאן מקומי בלבד. הוא לא שולח נתונים לשיטס ולא מעדכן סקריפט.
+        אחרי בדיקת השינויים ואישור של יפעת, הדוחות נשמרים בשיטס ומעדכנים את כל היומנים.
       </div>
 
       <div className="report-file-grid">
@@ -1114,8 +1112,8 @@ function ReportsImportPanel({ rows, actions }) {
         <button className="primary" disabled={busy || !files.arrivals || !files.departures} type="button" onClick={analyze}>
           {busy ? "בודק..." : "בדוק שינויים"}
         </button>
-        <button disabled={busy || !analysis || (!analysis.summary.newRows && !analysis.summary.changedRows && !analysis.summary.removedRows)} type="button" onClick={applyLocal}>
-          {busy ? "מעדכן..." : "החל מקומית"}
+        <button disabled={busy || !analysis || (!analysis.summary.newRows && !analysis.summary.changedRows && !analysis.summary.removedRows)} type="button" onClick={applyToSheets}>
+          {busy ? "שומר..." : "שמור בשיטס"}
         </button>
       </div>
 

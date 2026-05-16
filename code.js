@@ -131,7 +131,7 @@ function handleApiGet(e) {
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
-    const { table, op, record, id, rows } = body;
+    const { table, op, record, id, rows, summary } = body;
 
     if (!SHEETS[table]) {
       throw new Error('Unknown table: ' + table);
@@ -150,7 +150,7 @@ function doPost(e) {
     } else if (op === 'delete') {
       result = deleteRecord(table, id);
     } else if (table === 'turnovers' && op === 'syncReports') {
-      result = syncReportTurnovers(rows || []);
+      result = syncReportTurnovers(rows || [], summary || {});
     } else {
       throw new Error('Unknown op: ' + op);
     }
@@ -280,13 +280,46 @@ function isReportTurnover_(row, headers) {
   return id.indexOf('report-') === 0 || source === 'report' || source === 'local';
 }
 
-function syncReportTurnovers(rows) {
+function createReportSyncNotifications_(summary) {
+  const hasChanges =
+    Number(summary.newRows || 0) > 0 ||
+    Number(summary.changedRows || 0) > 0 ||
+    Number(summary.removedRows || 0) > 0;
+
+  if (!hasChanges) return [];
+
+  const message = [
+    'דוחות כניסות ועזיבות נשמרו בשיטס',
+    Number(summary.newRows || 0) + ' חדשים',
+    Number(summary.changedRows || 0) + ' שונו',
+    Number(summary.removedRows || 0) + ' הוסרו',
+    Number(summary.sameDay || 0) + ' החלפות'
+  ].join(' · ');
+
+  return ['house', 'bookings', 'admin'].map(target => ({
+    id: 'report-notice-' + new Date().getTime() + '-' + target,
+    for: target,
+    message: message,
+    room: 'דוחות',
+    date: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+    read: false,
+    createdAt: new Date().toISOString(),
+    pushSent: ''
+  }));
+}
+
+function syncReportTurnovers(rows, summary) {
   if (!Array.isArray(rows)) {
     throw new Error('rows must be an array');
   }
 
   const sheet = getSS().getSheetByName('turnovers');
   const headers = SHEETS.turnovers;
+  sheet.getRange(1, 1, 1, headers.length)
+    .setValues([headers])
+    .setFontWeight('bold')
+    .setBackground('#F0F0F0');
+
   const lastRow = sheet.getLastRow();
   let keptRows = [];
 
@@ -308,10 +341,16 @@ function syncReportTurnovers(rows) {
     sheet.getRange(2, 1, nextRows.length, headers.length).setValues(nextRows);
   }
 
+  const notifications = createReportSyncNotifications_(summary);
+  notifications.forEach(notification => {
+    addRecord('notifications', notification);
+  });
+
   return {
     synced: reportRows.length,
     kept: keptRows.length,
-    total: nextRows.length
+    total: nextRows.length,
+    notifications: notifications.length
   };
 }
 
