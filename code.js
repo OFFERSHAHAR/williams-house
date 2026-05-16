@@ -27,6 +27,7 @@ const SHEETS = {
   hours:          ['id','userId','userName','date','startTime','endTime','totalHours','createdAt'],
   pool_logs:      ['id','type','doneAt','doneBy','notes'],
   pool_equipment: ['id','name','lastReplaced','notes'],
+  report_sync:    ['id','syncedAt','arrivals','departures','sameDay','newRows','changedRows','unchangedRows','removedRows','writtenRows','skippedRows','totalRows','status','message'],
 };
 
 const DEFAULT_USERS = [
@@ -86,7 +87,7 @@ function setup() {
 function clearAllData() {
   const ss = getSS();
 
-  ['maintenance','turnovers','notifications','shopping','hours','pool_logs'].forEach(name => {
+  ['maintenance','turnovers','notifications','shopping','hours','pool_logs','report_sync'].forEach(name => {
     const sheet = ss.getSheetByName(name);
     if (!sheet) return;
 
@@ -191,7 +192,17 @@ function readSheet(name) {
         h === 'children' ||
         h === 'babies' ||
         h === 'quantity' ||
-        h === 'totalHours'
+        h === 'totalHours' ||
+        h === 'arrivals' ||
+        h === 'departures' ||
+        h === 'sameDay' ||
+        h === 'newRows' ||
+        h === 'changedRows' ||
+        h === 'unchangedRows' ||
+        h === 'removedRows' ||
+        h === 'writtenRows' ||
+        h === 'skippedRows' ||
+        h === 'totalRows'
       ) {
         v = (v === '' || v === null) ? null : Number(v);
       } else if (
@@ -308,52 +319,252 @@ function createReportSyncNotifications_(summary) {
   }));
 }
 
+function ensureSheetHeaders_(name) {
+  const ss = getSS();
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) sheet = ss.insertSheet(name);
+
+  const headers = SHEETS[name];
+  sheet.getRange(1, 1, 1, headers.length)
+    .setValues([headers])
+    .setFontWeight('bold')
+    .setBackground('#F0F0F0');
+  sheet.setFrozenRows(1);
+
+  return sheet;
+}
+
+function normalizeSyncValue_(value) {
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+
+  if (value === true || value === 'TRUE' || value === 'true') return 'true';
+  if (value === false || value === 'FALSE' || value === 'false' || value === null || value === undefined) return '';
+
+  return String(value).trim();
+}
+
+const REPORT_COMPARE_FIELDS = ['id','room','date','guests','children','babies','notes','isOccupied'];
+const REPORT_UPDATE_FIELDS = ['id','room','date','guests','children','babies','notes','isOccupied','reportSource'];
+
+function rowToRecord_(row, headers) {
+  const record = {};
+  headers.forEach((header, index) => {
+    record[header] = row[index];
+  });
+  return record;
+}
+
+function recordToRow_(record, headers) {
+  return headers.map(header => record[header] === undefined || record[header] === null ? '' : record[header]);
+}
+
+function reportRecordsEqual_(currentRecord, nextRecord) {
+  for (let i = 0; i < REPORT_COMPARE_FIELDS.length; i++) {
+    const field = REPORT_COMPARE_FIELDS[i];
+    if (normalizeSyncValue_(currentRecord[field]) !== normalizeSyncValue_(nextRecord[field])) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function mergeReportRecord_(currentRecord, nextRecord) {
+  const merged = Object.assign({}, currentRecord);
+  REPORT_UPDATE_FIELDS.forEach(field => {
+    merged[field] = nextRecord[field];
+  });
+  merged.reportSource = 'report';
+  return merged;
+}
+
+function appendReportSync_(summary) {
+  ensureSheetHeaders_('report_sync');
+
+  const record = {
+    id: 'report-sync-' + new Date().getTime(),
+    syncedAt: new Date().toISOString(),
+    arrivals: Number(summary.arrivals || 0),
+    departures: Number(summary.departures || 0),
+    sameDay: Number(summary.sameDay || 0),
+    newRows: Number(summary.newRows || 0),
+    changedRows: Number(summary.changedRows || 0),
+    unchangedRows: Number(summary.unchangedRows || 0),
+    removedRows: Number(summary.removedRows || 0),
+    writtenRows: Number(summary.writtenRows || 0),
+    skippedRows: Number(summary.skippedRows || 0),
+    totalRows: Number(summary.totalRows || 0),
+    status: summary.status || 'ok',
+    message: summary.message || ''
+  };
+
+  addRecord('report_sync', record);
+  return record;
+}
+
 function syncReportTurnovers(rows, summary) {
   if (!Array.isArray(rows)) {
     throw new Error('rows must be an array');
   }
 
-  const sheet = getSS().getSheetByName('turnovers');
+  const sheet = ensureSheetHeaders_('turnovers');
   const headers = SHEETS.turnovers;
-  sheet.getRange(1, 1, 1, headers.length)
-    .setValues([headers])
-    .setFontWeight('bold')
-    .setBackground('#F0F0F0');
-
   const lastRow = sheet.getLastRow();
-  let keptRows = [];
+  const idIndex = headers.indexOf('id');
+  const currentRows = lastRow > 1
+    ? sheet.getRange(2, 1, lastRow - 1, headers.length).getValues().map((values, index) => ({
+      values: values,
+      rowNumber: index + 2,
+      record: rowToRecord_(values, headers)
+    }))
+    : [];
+  const currentReportRows = currentRows.filter(item => isReportTurnover_(item.values, headers));
+  const currentById = {};
+  currentReportRows.forEach(item => {
+    currentById[String(item.values[idIndex] || '')] = item;
+  });
 
-  if (lastRow > 1) {
-    const currentRows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
-    keptRows = currentRows.filter(row => !isReportTurnover_(row, headers));
-    sheet.getRange(2, 1, lastRow - 1, headers.length).clearContent();
+  const incomingById = {};
+  const incomingRows = rows.map(record => {
+    const row = headers.map(h => {
+      if (h === 'reportSource') return 'report';
+      return record[h] === undefined || record[h] === null ? '' : record[h];
+    });
+    incomingById[String(row[idIndex] || '')] = true;
+    return {
+      id: String(row[idIndex] || ''),
+      row: row,
+      record: rowToRecord_(row, headers)
+    };
+  }).filter(item => item.id);
+
+  const newRows = [];
+  const changedRows = [];
+  let unchangedRows = 0;
+
+  incomingRows.forEach(item => {
+    const current = currentById[item.id];
+    if (!current) {
+      newRows.push(item);
+      return;
+    }
+
+    if (reportRecordsEqual_(current.record, item.record)) {
+      unchangedRows += 1;
+      return;
+    }
+
+    const merged = mergeReportRecord_(current.record, item.record);
+    changedRows.push({
+      rowNumber: current.rowNumber,
+      row: recordToRow_(merged, headers)
+    });
+  });
+
+  const removedRows = currentReportRows.filter(item => !incomingById[String(item.values[idIndex] || '')]);
+
+  changedRows.forEach(item => {
+    sheet.getRange(item.rowNumber, 1, 1, headers.length).setValues([item.row]);
+  });
+
+  if (newRows.length) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, headers.length)
+      .setValues(newRows.map(item => item.row));
   }
 
-  const reportRows = rows.map(record => headers.map(h => {
-    if (h === 'reportSource') return record[h] || 'report';
-    if (h === 'pushSent') return '';
-    return record[h] === undefined || record[h] === null ? '' : record[h];
-  }));
+  removedRows
+    .slice()
+    .sort((a, b) => b.rowNumber - a.rowNumber)
+    .forEach(item => {
+      sheet.deleteRow(item.rowNumber);
+    });
 
-  const nextRows = keptRows.concat(reportRows);
+  const serverSummary = {
+    arrivals: Number(summary.arrivals || rows.length || 0),
+    departures: Number(summary.departures || 0),
+    sameDay: Number(summary.sameDay || 0),
+    newRows: newRows.length,
+    changedRows: changedRows.length,
+    unchangedRows: unchangedRows,
+    removedRows: removedRows.length,
+    writtenRows: newRows.length + changedRows.length,
+    skippedRows: unchangedRows,
+    totalRows: rows.length,
+    status: 'ok',
+    message: 'Reports synced to Sheets'
+  };
 
-  if (nextRows.length) {
-    sheet.getRange(2, 1, nextRows.length, headers.length).setValues(nextRows);
-  }
-
-  const notifications = createReportSyncNotifications_(summary);
+  const notifications = createReportSyncNotifications_(serverSummary);
   notifications.forEach(notification => {
     addRecord('notifications', notification);
   });
 
+  const syncRecord = appendReportSync_(serverSummary);
+
   return {
-    synced: reportRows.length,
-    kept: keptRows.length,
-    total: nextRows.length,
-    notifications: notifications.length
+    synced: rows.length,
+    newRows: serverSummary.newRows,
+    changedRows: serverSummary.changedRows,
+    unchangedRows: serverSummary.unchangedRows,
+    removedRows: serverSummary.removedRows,
+    writtenRows: serverSummary.writtenRows,
+    skippedRows: serverSummary.skippedRows,
+    total: rows.length,
+    notifications: notifications.length,
+    syncRecord: syncRecord
   };
 }
 
+function validateSchema() {
+  const ss = getSS();
+  const report = [];
+  let ok = true;
+
+  Object.keys(SHEETS).forEach(name => {
+    const expected = SHEETS[name];
+    const sheet = ss.getSheetByName(name);
+
+    if (!sheet) {
+      ok = false;
+      report.push('Missing sheet: ' + name);
+      return;
+    }
+
+    const lastColumn = Math.max(sheet.getLastColumn(), expected.length);
+    const actual = sheet.getRange(1, 1, 1, lastColumn)
+      .getValues()[0]
+      .map(value => String(value || '').trim());
+
+    expected.forEach((header, index) => {
+      if (actual[index] !== header) {
+        ok = false;
+        report.push(
+          'Sheet ' + name +
+          ' column ' + (index + 1) +
+          ' expected ' + header +
+          ' but found ' + (actual[index] || 'empty')
+        );
+      }
+    });
+  });
+
+  const result = ok ? 'OK - schema is valid' : report.join('\n');
+  Logger.log(result);
+  return result;
+}
+
+function repairSchema() {
+  setup();
+  return validateSchema();
+}
+
+/*
+  Report sync writes only new or changed report fields, skips identical rows,
+  preserves operational fields, deletes removed report rows,
+  and records every successful sync.
+*/
 function jsonResponse(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj))
     .setMimeType(ContentService.MimeType.JSON);

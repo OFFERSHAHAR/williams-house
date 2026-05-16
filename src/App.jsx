@@ -12,7 +12,8 @@ const emptyData = {
   shopping: [],
   hours: [],
   pool_logs: [],
-  pool_equipment: []
+  pool_equipment: [],
+  report_sync: []
 };
 
 const roleLabels = {
@@ -551,13 +552,14 @@ export default function App() {
         ]
       }));
       try {
-        await syncReportTurnovers(nextReportRows, summary);
+        const result = await syncReportTurnovers(nextReportRows, summary);
         await loadData();
         setActionNotice({ type: "success", text: "הדוחות נשמרו בשיטס" });
         window.setTimeout(() => {
           setActionNotice((current) => (current?.text === "הדוחות נשמרו בשיטס" ? null : current));
         }, 1800);
         setError("");
+        return result;
       } catch (err) {
         const message = err.message || String(err);
         setActionNotice({ type: "error", text: `שגיאה: ${message}` });
@@ -658,7 +660,7 @@ export default function App() {
       </nav>
 
       {tab === "dashboard" && <Dashboard data={data} onNavigate={setTab} />}
-      {tab === "turnovers" && <TurnoversPanel rows={data.turnovers} saving={saving} user={user} actions={actions} />}
+      {tab === "turnovers" && <TurnoversPanel rows={data.turnovers} reportSync={data.report_sync} saving={saving} user={user} actions={actions} />}
       {tab === "maintenance" && <MaintenancePanel rows={data.maintenance} turnovers={data.turnovers} saving={saving} user={user} actions={actions} />}
       {tab === "shopping" && <ShoppingPanel rows={data.shopping} saving={saving} user={user} users={data.users} actions={actions} />}
       {tab === "hours" && <HoursPanel rows={data.hours} saving={saving} user={user} users={data.users} actions={actions} />}
@@ -762,13 +764,13 @@ function Dashboard({ data, onNavigate }) {
     </>
   );
 }
-function TurnoversPanel({ rows, saving, user, actions }) {
+function TurnoversPanel({ rows, reportSync = [], saving, user, actions }) {
   if (user.role === "house") {
     return <HouseTurnoversPanel rows={rows} saving={saving} user={user} actions={actions} />;
   }
 
   if (user.role === "bookings") {
-    return <BookingTurnoversPanel rows={rows} saving={saving} actions={actions} />;
+    return <BookingTurnoversPanel rows={rows} reportSync={reportSync} saving={saving} actions={actions} />;
   }
 
   const roomOptions = getRoomOptions(rows);
@@ -894,7 +896,7 @@ function TurnoversPanel({ rows, saving, user, actions }) {
   );
 }
 
-function BookingTurnoversPanel({ rows, saving, actions }) {
+function BookingTurnoversPanel({ rows, reportSync = [], saving, actions }) {
   const roomOptions = getRoomOptions(rows);
   const [view, setView] = useState("calendar");
   const [form, setForm] = useState({
@@ -1035,7 +1037,7 @@ function BookingTurnoversPanel({ rows, saving, actions }) {
           </button>
         </form>
       ) : view === "reports" ? (
-        <ReportsImportPanel rows={rows} actions={actions} />
+        <ReportsImportPanel rows={rows} reportSync={reportSync} actions={actions} />
       ) : (
         <TurnoverList title={view === "today" ? "חדרים להיום" : "חדרים עתידיים"} rows={visibleRows} allRows={rows} actions={actions} readOnly canEdit />
       )}
@@ -1043,12 +1045,15 @@ function BookingTurnoversPanel({ rows, saving, actions }) {
   );
 }
 
-function ReportsImportPanel({ rows, actions }) {
+function ReportsImportPanel({ rows, reportSync = [], actions }) {
   const [files, setFiles] = useState({ arrivals: null, departures: null });
   const [analysis, setAnalysis] = useState(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const lastSync = reportSync
+    .slice()
+    .sort((a, b) => String(b.syncedAt || "").localeCompare(String(a.syncedAt || "")))[0];
 
   const setFile = (key, file) => {
     setFiles((current) => ({ ...current, [key]: file }));
@@ -1079,8 +1084,11 @@ function ReportsImportPanel({ rows, actions }) {
     setError("");
     setStatus("שומר בשיטס...");
     try {
-      await actions.syncReports(analysis.nextRows, analysis.summary);
-      setStatus("נשמר בשיטס והיומנים עודכנו");
+      const result = await actions.syncReports(analysis.nextRows, analysis.summary);
+      const saved = result?.newRows || result?.changedRows || result?.removedRows
+        ? `${result.newRows || 0} חדשים · ${result.changedRows || 0} שונו · ${result.removedRows || 0} הוסרו · ${result.unchangedRows || 0} לא נכתבו שוב`
+        : "לא נמצאו שינויים לכתיבה";
+      setStatus(`נשמר בשיטס והיומנים עודכנו · ${saved}`);
     } catch (err) {
       setError(err.message || String(err));
       setStatus("");
@@ -1093,6 +1101,25 @@ function ReportsImportPanel({ rows, actions }) {
     <div className="reports-import">
       <div className="notice compact">
         אחרי בדיקת השינויים ואישור של יפעת, הדוחות נשמרים בשיטס ומעדכנים את כל היומנים.
+      </div>
+
+      <div className="report-summary">
+        <div className="mini-metric">
+          <span>סנכרון אחרון</span>
+          <strong>{lastSync ? formatDateTime(lastSync.syncedAt) : "אין עדיין"}</strong>
+        </div>
+        <div className="mini-metric">
+          <span>כניסות אחרונות</span>
+          <strong>{lastSync?.arrivals ?? 0}</strong>
+        </div>
+        <div className="mini-metric">
+          <span>עזיבות אחרונות</span>
+          <strong>{lastSync?.departures ?? 0}</strong>
+        </div>
+        <div className="mini-metric">
+          <span>לא נכתבו שוב</span>
+          <strong>{lastSync?.skippedRows ?? 0}</strong>
+        </div>
       </div>
 
       <div className="report-file-grid">

@@ -10,5 +10,6 @@ export const TABLES = {
   shopping: "shopping",
   hours: "hours",
   poolLogs: "pool_logs",
-  poolEquipment: "pool_equipment"
+  poolEquipment: "pool_equipment",
+  reportSync: "report_sync"
 };
