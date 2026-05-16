@@ -7,7 +7,7 @@ export default defineConfig({
     outDir: "dist",
     rollupOptions: {
       input: {
-        index: "src-index.html"
+        index: "source-index.html"
       }
     }
   },

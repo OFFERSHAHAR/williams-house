@@ -1,6 +1,7 @@
 import { copyFile } from "node:fs/promises";
 
-await copyFile("dist/src-index.html", "dist/index.html");
+await copyFile("dist/source-index.html", "dist/index.html");
+await copyFile("dist/source-index.html", "dist/src-index.html");
 
 await Promise.all(
   [
