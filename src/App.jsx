@@ -1341,7 +1341,7 @@ function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, 
   return (
     <ListBlock title={title} empty="אין סידורים להצגה">
       {rows.map((row) => (
-        <article className="list-item" key={row.id}>
+        <article className={row.isOccupied ? "list-item turnover-swap" : "list-item"} key={row.id}>
           {editingId === row.id ? (
             <TurnoverEditForm row={row} rows={allRows} actions={actions} onCancel={() => setEditingId("")} onSaved={() => setEditingId("")} />
           ) : (

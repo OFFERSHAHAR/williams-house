@@ -863,6 +863,16 @@ button:disabled {
   background: rgba(254, 242, 242, 0.86);
 }
 
+.list-item.turnover-swap {
+  border-color: rgba(232, 126, 43, 0.42);
+  background: rgba(255, 239, 219, 0.92);
+  box-shadow: 0 16px 34px rgba(183, 96, 28, 0.14);
+}
+
+.list-item.turnover-swap strong {
+  color: #8a430b;
+}
+
 .list-item strong,
 .mini-row strong {
   display: block;
