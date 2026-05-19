@@ -281,6 +281,32 @@ function uniqueReportEvents(rows) {
   return [...new Map(rows.map((row) => [reportEventKey(row), row])).values()];
 }
 
+function maintenanceTaskKey(row) {
+  const id = String(row?.id || "").trim();
+  const title = String(row?.title || "").trim().toLowerCase();
+  const location = String(row?.location || "").trim().toLowerCase();
+  const dueDate = String(row?.dueDate || "").slice(0, 10);
+  const urgency = String(row?.urgency || "").trim().toLowerCase();
+  const description = String(row?.description || "").trim().toLowerCase();
+
+  if (!title && !location && !dueDate && !urgency && !description) {
+    return `id:${id}`;
+  }
+
+  return [
+    "task",
+    title,
+    location,
+    dueDate,
+    urgency,
+    description
+  ].join("|");
+}
+
+function uniqueMaintenanceTasks(rows) {
+  return [...new Map(rows.map((row) => [maintenanceTaskKey(row), row])).values()];
+}
+
 function mergeScheduleListRows(rows) {
   const priority = { swap: 0, arrival: 1, departure: 2, block: 3 };
   const grouped = new Map();
@@ -1039,7 +1065,13 @@ export default function App() {
 
   const tabs = tabSets[user.role] || tabSets.admin;
   const saving = pendingActions.size > 0;
-  const tabClassName = user.role === "bookings" || user.role === "maint" ? "tabs tabs-bubbles" : "tabs";
+  const tabClassName = "tabs tabs-premium";
+  const changeTab = (item) => {
+    if (item !== tab && typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      navigator.vibrate(12);
+    }
+    setTab(item);
+  };
   const incomingMessage = (data.messages || [])
     .filter((row) => isMessageForUser(row, user) && isUnread(row))
     .sort(messageSortNewest)[0];
@@ -1086,7 +1118,7 @@ export default function App() {
 
       <nav className={tabClassName}>
         {tabs.map((item) => (
-          <button className={tab === item ? "active" : ""} key={item} type="button" onClick={() => setTab(item)}>
+          <button className={tab === item ? "active" : ""} key={item} type="button" onClick={() => changeTab(item)}>
             {tabLabels[item]}
           </button>
         ))}
@@ -1170,13 +1202,13 @@ function LoginScreen({ users, error, onLogin }) {
 
 function Dashboard({ data, onNavigate }) {
   const todayDate = today();
-  const openMaintenance = data.maintenance.filter((row) => !isDone(row)).length;
+  const openMaintenance = uniqueMaintenanceTasks(data.maintenance.filter((row) => !isDone(row))).length;
   const pendingShopping = data.shopping.filter((row) => !isPurchased(row)).length;
-  const todayRows = mergeScheduleListRows(data.turnovers.filter((row) => row.date === todayDate));
+  const todayRows = mergeScheduleListRows(uniqueReportEvents(data.turnovers.filter((row) => row.date === todayDate)));
   const todayOpenRows = todayRows.filter((row) => !isDone(row));
   const todayTurnovers = todayOpenRows.length;
   const todayOpen = todayOpenRows.slice(0, 5);
-  const urgent = data.maintenance.filter((row) => !isDone(row) && (row.urgency === "קריטי" || row.urgency === "דחוף")).slice(0, 5);
+  const urgent = uniqueMaintenanceTasks(data.maintenance.filter((row) => !isDone(row) && (row.urgency === "קריטי" || row.urgency === "דחוף"))).slice(0, 5);
   const poolTreatments = data.pool_logs.filter(isPoolTreatment).length;
   const completedRooms = todayRows.filter(isDone).length;
 
@@ -2299,11 +2331,11 @@ function HouseRoomCard({ row, user, completing, onComplete, actions, showComplet
 
 function MaintenancePanel({ rows, turnovers, saving, user, actions }) {
   const [form, setForm] = useState({ title: "", description: "", location: "", dueDate: "", urgency: "רגיל" });
-  const open = rows.filter((row) => !isDone(row));
-  const done = rows.filter((row) => isDone(row));
-  const todayGardenRows = turnovers
+  const open = uniqueMaintenanceTasks(rows.filter((row) => !isDone(row)));
+  const done = uniqueMaintenanceTasks(rows.filter((row) => isDone(row)));
+  const todayGardenRows = mergeScheduleListRows(uniqueReportEvents(turnovers
     .filter((row) => String(row.date || "").slice(0, 10) === today() && !row.gardenDone)
-    .sort((a, b) => String(a.room || "").localeCompare(String(b.room || "")));
+  )).sort((a, b) => String(a.room || "").localeCompare(String(b.room || "")));
 
   const submit = async (event) => {
     event.preventDefault();
@@ -2339,6 +2371,7 @@ function MaintenancePanel({ rows, turnovers, saving, user, actions }) {
       <SectionHead title="אחזקה" badge={`${open.length} פתוחות`} />
       <ListBlock title="כניסות היום - גינות" empty="אין כניסות שממתינות לגינה היום">
         {todayGardenRows.map((row) => {
+          const actionRow = row.editRow || row;
           const compactNote = compactBookingNote(row.notes);
           return (
             <article className="list-item" key={row.id}>
@@ -2350,8 +2383,8 @@ function MaintenancePanel({ rows, turnovers, saving, user, actions }) {
                 </p>
               </div>
               <div className="actions">
-                <button type="button" disabled={actions.isPending(`update:${TABLES.turnovers}:${row.id}`)} onClick={() => actions.update(TABLES.turnovers, { ...row, gardenDone: true, gardenDoneAt: nowIso() })}>
-                  {actions.isPending(`update:${TABLES.turnovers}:${row.id}`) ? "מסמן..." : "בוצע"}
+                <button type="button" disabled={actions.isPending(`update:${TABLES.turnovers}:${actionRow.id}`)} onClick={() => actions.update(TABLES.turnovers, { ...actionRow, gardenDone: true, gardenDoneAt: nowIso() })}>
+                  {actions.isPending(`update:${TABLES.turnovers}:${actionRow.id}`) ? "מסמן..." : "בוצע"}
                 </button>
               </div>
             </article>
