@@ -2093,7 +2093,7 @@ function HouseTurnoversPanel({ rows, reportSync = [], saving, user, actions }) {
   const [view, setView] = useState("today");
   const todayDate = today();
   const weekEnd = addDays(todayDate, 7);
-  const pending = rows.filter((row) => !isDone(row));
+  const pending = mergeScheduleListRows(rows).filter((row) => !isDone(row));
   const todayRows = pending
     .filter((row) => String(row.date || "").slice(0, 10) === todayDate)
     .sort((a, b) => String(a.room || "").localeCompare(String(b.room || "")));
