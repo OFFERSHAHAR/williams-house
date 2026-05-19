@@ -2233,7 +2233,7 @@ function HouseRoomCard({ row, user, completing, onComplete, actions, showComplet
         </div>
       )}
 
-      {row.notes && <div className="house-note">{row.notes}</div>}
+      {compactBookingNote(row.notes) && <div className="house-note">{compactBookingNote(row.notes)}</div>}
 
       <div className={`house-issue ${issueOpen || issueText ? "open" : ""}`}>
         <button className="danger-soft house-issue-toggle" type="button" onClick={() => setIssueOpen((current) => !current)}>
