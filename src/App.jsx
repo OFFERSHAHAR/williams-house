@@ -1934,6 +1934,14 @@ function isMaintenanceScheduleRow(row) {
   return isMaintenanceReportTurnover(row) || reportEventType(row) === "block" || row.eventTypes?.includes("block");
 }
 
+function compactBookingNote(notes) {
+  const text = String(notes || "");
+  return text
+    .split(" · ")
+    .filter((part) => /^(אורח|הזמנה):/.test(part.trim()))
+    .join(" · ");
+}
+
 function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, canEdit = false }) {
   const [editingId, setEditingId] = useState("");
   return (
@@ -2298,22 +2306,25 @@ function MaintenancePanel({ rows, turnovers, saving, user, actions }) {
     <section className="panel">
       <SectionHead title="אחזקה" badge={`${open.length} פתוחות`} />
       <ListBlock title="כניסות היום - גינות" empty="אין כניסות שממתינות לגינה היום">
-        {todayGardenRows.map((row) => (
-          <article className="list-item" key={row.id}>
-            <div>
-              <strong>{row.room}</strong>
-              <p>
-                {row.guests || 0} אורחים
-                {row.notes ? ` · ${row.notes}` : ""}
-              </p>
-            </div>
-            <div className="actions">
-              <button type="button" disabled={actions.isPending(`update:${TABLES.turnovers}:${row.id}`)} onClick={() => actions.update(TABLES.turnovers, { ...row, gardenDone: true, gardenDoneAt: nowIso() })}>
-                {actions.isPending(`update:${TABLES.turnovers}:${row.id}`) ? "מסמן..." : "בוצע"}
-              </button>
-            </div>
-          </article>
-        ))}
+        {todayGardenRows.map((row) => {
+          const compactNote = compactBookingNote(row.notes);
+          return (
+            <article className="list-item" key={row.id}>
+              <div>
+                <strong>{row.room}</strong>
+                <p>
+                  {row.guests || 0} אורחים
+                  {compactNote ? ` · ${compactNote}` : ""}
+                </p>
+              </div>
+              <div className="actions">
+                <button type="button" disabled={actions.isPending(`update:${TABLES.turnovers}:${row.id}`)} onClick={() => actions.update(TABLES.turnovers, { ...row, gardenDone: true, gardenDoneAt: nowIso() })}>
+                  {actions.isPending(`update:${TABLES.turnovers}:${row.id}`) ? "מסמן..." : "בוצע"}
+                </button>
+              </div>
+            </article>
+          );
+        })}
       </ListBlock>
       <form className="form" onSubmit={submit}>
         <label>
