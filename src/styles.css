@@ -229,6 +229,38 @@ h2 {
   box-shadow: 0 12px 28px rgba(38, 137, 255, 0.28);
 }
 
+.tabs.tabs-bubbles {
+  position: static;
+  top: auto;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0;
+  margin-bottom: 18px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  overflow: visible;
+}
+
+.tabs.tabs-bubbles button {
+  min-width: 116px;
+  min-height: 54px;
+  padding: 12px 18px;
+  border-radius: 999px;
+  background: rgba(238, 246, 253, 0.64);
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  box-shadow: 0 12px 28px rgba(44, 67, 98, 0.08);
+}
+
+.tabs.tabs-bubbles button.active {
+  background: rgba(207, 228, 255, 0.86);
+  color: var(--blue-deep);
+  border-color: rgba(128, 187, 255, 0.7);
+  box-shadow: 0 14px 34px rgba(41, 125, 230, 0.16);
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -379,6 +411,16 @@ h2 {
   font-size: 12px;
   font-weight: 850;
   line-height: 1.45;
+}
+
+.notice-dismiss {
+  justify-self: start;
+  min-height: 36px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(196, 107, 0, 0.18);
+  color: #7c4500;
 }
 
 .action-toast {
@@ -958,6 +1000,16 @@ button:disabled {
   color: var(--ink-3);
   font-size: 13px;
   margin: 0;
+}
+
+.list-item .turnover-note {
+  margin-top: 7px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(126, 147, 174, 0.12);
+  color: var(--ink-2);
+  line-height: 1.45;
 }
 
 .mini-row {
@@ -1942,6 +1994,16 @@ button:disabled {
     font-size: 13px;
   }
 
+  .tabs.tabs-bubbles {
+    position: static !important;
+    top: auto !important;
+    right: auto;
+    left: auto;
+    padding: 0;
+    gap: 8px;
+    border-radius: 0;
+  }
+
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
@@ -2091,6 +2153,14 @@ button:disabled {
     z-index: 80;
     margin: 0;
   }
+
+  .tabs.tabs-bubbles {
+    position: static !important;
+    top: auto !important;
+    right: auto;
+    left: auto;
+    margin-bottom: 14px;
+  }
 }
 
 @media (max-width: 560px) {
@@ -2137,6 +2207,26 @@ button:disabled {
 
   .tabs button {
     min-height: 46px;
+    padding: 10px 15px;
+  }
+
+  .tabs.tabs-bubbles {
+    position: static;
+    top: auto;
+    right: auto;
+    left: auto;
+    margin: 0 0 14px;
+    padding: 0;
+    gap: 8px;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
+
+  .tabs.tabs-bubbles button {
+    min-width: 104px;
+    min-height: 48px;
     padding: 10px 15px;
   }
 

@@ -88,6 +88,7 @@ const REPORT_EVENT_LABELS = {
   departure: "עזיבה",
   block: "חסום"
 };
+const SCHEDULE_NOTICE_DISMISSED_KEY = "williams_schedule_notice_dismissed";
 const turnoverChangeFields = [
   ["room", "חדר"],
   ["date", "תאריך"],
@@ -158,6 +159,24 @@ function scheduleNoticePreview(changes = []) {
   if (changes.length === 1) return changes[0];
   const extra = changes.length - 1;
   return `${changes[0]} · ${extra === 1 ? "ועוד שינוי אחד" : `ועוד ${extra} שינויים`}`;
+}
+
+function scheduleNoticeSignature(changes = []) {
+  return changes.join("||");
+}
+
+function readDismissedScheduleNotice() {
+  try {
+    return localStorage.getItem(SCHEDULE_NOTICE_DISMISSED_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveDismissedScheduleNotice(signature) {
+  try {
+    localStorage.setItem(SCHEDULE_NOTICE_DISMISSED_KEY, signature || "");
+  } catch {}
 }
 
 function findDuplicateTurnover(rows, form, ignoreId = "") {
@@ -731,7 +750,14 @@ export default function App() {
     const normalized = { ...emptyData, ...nextData };
     const changes = findTurnoverChanges(previousTurnoversRef.current, normalized.turnovers);
     if (changes.length > 0) {
-      setScheduleNotice({ items: changes, preview: scheduleNoticePreview(changes) });
+      const signature = scheduleNoticeSignature(changes);
+      if (signature !== readDismissedScheduleNotice()) {
+        setScheduleNotice({ items: changes, preview: scheduleNoticePreview(changes), signature });
+      } else {
+        setScheduleNotice(null);
+      }
+    } else {
+      setScheduleNotice(null);
     }
     previousTurnoversRef.current = normalized.turnovers;
     setData(normalized);
@@ -999,6 +1025,11 @@ export default function App() {
 
   const tabs = tabSets[user.role] || tabSets.admin;
   const saving = pendingActions.size > 0;
+  const tabClassName = user.role === "bookings" ? "tabs tabs-bubbles" : "tabs";
+  const dismissScheduleNotice = () => {
+    saveDismissedScheduleNotice(scheduleNotice?.signature);
+    setScheduleNotice(null);
+  };
 
   return (
     <main className="screen app-shell">
@@ -1029,11 +1060,14 @@ export default function App() {
             {(scheduleNotice.items || []).map((item, index) => (
               <p key={`${item}-${index}`}>{item}</p>
             ))}
+            <button className="notice-dismiss" type="button" onClick={dismissScheduleNotice}>
+              קראתי
+            </button>
           </div>
         </details>
       )}
 
-      <nav className="tabs">
+      <nav className={tabClassName}>
         {tabs.map((item) => (
           <button className={tab === item ? "active" : ""} key={item} type="button" onClick={() => setTab(item)}>
             {tabLabels[item]}
@@ -1910,8 +1944,8 @@ function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, 
                   {row.children ? ` · ${row.children} ילדים` : ""}
                   {row.babies ? ` · ${row.babies} תינוקות` : ""}
                   {row.isReturning ? " · לקוח חוזר" : " · לקוח חדש"}
-                  {!row.eventTypes?.length && row.notes ? ` · ${row.notes}` : ""}
                 </p>
+                {row.notes && <p className="turnover-note">הערה: {row.notes}</p>}
               </div>
               <div className="actions">
                 {canEdit && (
