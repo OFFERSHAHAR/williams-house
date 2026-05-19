@@ -2,6 +2,22 @@ version: 1
 include:
   - "*"
 headers:
+  - source: "/src/*"
+    headers:
+      - key: "Cache-Control"
+        value: "no-cache, no-store, must-revalidate"
+  - source: "/src-index.html"
+    headers:
+      - key: "Cache-Control"
+        value: "no-cache, no-store, must-revalidate"
+  - source: "/source-index.html"
+    headers:
+      - key: "Cache-Control"
+        value: "no-cache, no-store, must-revalidate"
+  - source: "/bundle.js"
+    headers:
+      - key: "Cache-Control"
+        value: "no-cache, no-store, must-revalidate"
   - source: "/*"
     headers:
       - key: "Cache-Control"
