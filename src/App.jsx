@@ -1922,6 +1922,10 @@ function scheduleListLabels(row) {
     .filter(Boolean);
 }
 
+function isMaintenanceScheduleRow(row) {
+  return isMaintenanceReportTurnover(row) || reportEventType(row) === "block" || row.eventTypes?.includes("block");
+}
+
 function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, canEdit = false }) {
   const [editingId, setEditingId] = useState("");
   return (
@@ -1945,7 +1949,7 @@ function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, 
                   {row.babies ? ` · ${row.babies} תינוקות` : ""}
                   {row.isReturning ? " · לקוח חוזר" : " · לקוח חדש"}
                 </p>
-                {row.notes && <p className="turnover-note">הערה: {row.notes}</p>}
+                {row.notes && isMaintenanceScheduleRow(row) && <p className="turnover-note">הערה: {row.notes}</p>}
               </div>
               <div className="actions">
                 {canEdit && (
