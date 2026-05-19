@@ -1148,8 +1148,10 @@ function Dashboard({ data, onNavigate }) {
   const todayDate = today();
   const openMaintenance = data.maintenance.filter((row) => !isDone(row)).length;
   const pendingShopping = data.shopping.filter((row) => !isPurchased(row)).length;
-  const todayTurnovers = data.turnovers.filter((row) => row.date === todayDate).length;
-  const todayOpen = data.turnovers.filter((row) => row.date === todayDate && !isDone(row)).slice(0, 5);
+  const todayRows = mergeScheduleListRows(data.turnovers.filter((row) => row.date === todayDate));
+  const todayOpenRows = todayRows.filter((row) => !isDone(row));
+  const todayTurnovers = todayOpenRows.length;
+  const todayOpen = todayOpenRows.slice(0, 5);
   const urgent = data.maintenance.filter((row) => !isDone(row) && (row.urgency === "קריטי" || row.urgency === "דחוף")).slice(0, 5);
   const poolTreatments = data.pool_logs.filter(isPoolTreatment).length;
   const completedRooms = data.turnovers.filter(isDone).length;
