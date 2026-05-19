@@ -1154,7 +1154,7 @@ function Dashboard({ data, onNavigate }) {
   const todayOpen = todayOpenRows.slice(0, 5);
   const urgent = data.maintenance.filter((row) => !isDone(row) && (row.urgency === "קריטי" || row.urgency === "דחוף")).slice(0, 5);
   const poolTreatments = data.pool_logs.filter(isPoolTreatment).length;
-  const completedRooms = data.turnovers.filter(isDone).length;
+  const completedRooms = todayRows.filter(isDone).length;
 
   return (
     <>
