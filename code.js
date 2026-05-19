@@ -28,6 +28,7 @@ const SHEETS = {
   pool_logs:      ['id','type','doneAt','doneBy','notes'],
   pool_equipment: ['id','name','lastReplaced','notes'],
   report_sync:    ['id','syncedAt','arrivals','departures','sameDay','newRows','changedRows','unchangedRows','removedRows','writtenRows','skippedRows','manualOverrides','totalRows','status','message','reportMonth'],
+  messages:       ['id','threadId','from','fromName','to','toName','message','read','createdAt','expiresAt'],
 };
 
 const DEFAULT_USERS = [
@@ -43,6 +44,44 @@ const DEFAULT_POOL_EQUIPMENT = [
 
 function getSS() {
   return SpreadsheetApp.openById(SPREADSHEET_ID);
+}
+
+function ensureSheet(name) {
+  const ss = getSS();
+  let sheet = ss.getSheetByName(name);
+  if (!sheet && SHEETS[name]) {
+    sheet = ss.insertSheet(name);
+    sheet.getRange(1, 1, 1, SHEETS[name].length)
+      .setValues([SHEETS[name]])
+      .setFontWeight('bold')
+      .setBackground('#F0F0F0');
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+
+function cleanupExpiredMessages() {
+  const sheet = ensureSheet('messages');
+  if (!sheet || sheet.getLastRow() < 2) return 0;
+
+  const headers = SHEETS.messages;
+  const expiresAtIndex = headers.indexOf('expiresAt');
+  if (expiresAtIndex === -1) return 0;
+
+  const now = new Date().getTime();
+  const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
+  let removed = 0;
+
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const value = rows[i][expiresAtIndex];
+    const time = value instanceof Date ? value.getTime() : new Date(value).getTime();
+    if (time && time <= now) {
+      sheet.deleteRow(i + 2);
+      removed += 1;
+    }
+  }
+
+  return removed;
 }
 
 /** הרץ פעם אחת */
@@ -87,7 +126,7 @@ function setup() {
 function clearAllData() {
   const ss = getSS();
 
-  ['maintenance','turnovers','notifications','shopping','hours','pool_logs','report_sync'].forEach(name => {
+  ['maintenance','turnovers','notifications','shopping','hours','pool_logs','report_sync','messages'].forEach(name => {
     const sheet = ss.getSheetByName(name);
     if (!sheet) return;
 
@@ -114,6 +153,7 @@ function doGet(e) {
 function handleApiGet(e) {
   try {
     if (e.parameter.action === 'read') {
+      cleanupExpiredMessages();
       const result = {};
 
       Object.keys(SHEETS).forEach(name => {
@@ -131,6 +171,7 @@ function handleApiGet(e) {
 
 function doPost(e) {
   try {
+    cleanupExpiredMessages();
     const body = JSON.parse(e.postData.contents);
     const { table, op, record, id, rows, summary } = body;
 
@@ -228,7 +269,7 @@ function readSheet(name) {
 }
 
 function addRecord(table, record) {
-  const sheet = getSS().getSheetByName(table);
+  const sheet = ensureSheet(table);
   const headers = SHEETS[table];
 
   const row = headers.map(h => {
@@ -241,7 +282,7 @@ function addRecord(table, record) {
 }
 
 function updateRecord(table, record) {
-  const sheet = getSS().getSheetByName(table);
+  const sheet = ensureSheet(table);
   const headers = SHEETS[table];
 
   const lastRow = sheet.getLastRow();
@@ -269,7 +310,7 @@ function updateRecord(table, record) {
 }
 
 function deleteRecord(table, id) {
-  const sheet = getSS().getSheetByName(table);
+  const sheet = ensureSheet(table);
 
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return null;

@@ -1,5 +1,4 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
-import * as XLSX from "xlsx";
 import { addRecord, deleteRecord, readAll, readCachedData, saveCachedData, syncReportTurnovers, updateRecord } from "./api";
 import { TABLES } from "./config";
 import "./styles.css";
@@ -13,7 +12,8 @@ const emptyData = {
   hours: [],
   pool_logs: [],
   pool_equipment: [],
-  report_sync: []
+  report_sync: [],
+  messages: []
 };
 
 const roleLabels = {
@@ -24,10 +24,10 @@ const roleLabels = {
 };
 
 const tabSets = {
-  admin: ["dashboard", "turnovers", "maintenance", "shopping", "hours", "notifications", "pool"],
-  bookings: ["turnovers", "notifications"],
-  maint: ["maintenance", "maintenanceCalendar", "hours", "pool", "shopping", "notifications"],
-  house: ["turnovers", "shopping", "hours", "notifications"]
+  admin: ["dashboard", "turnovers", "messages", "maintenance", "shopping", "hours", "notifications", "pool"],
+  bookings: ["turnovers", "messages", "notifications"],
+  maint: ["maintenance", "maintenanceCalendar", "messages", "hours", "pool", "shopping", "notifications"],
+  house: ["turnovers", "messages", "shopping", "hours", "notifications"]
 };
 
 const tabLabels = {
@@ -36,12 +36,14 @@ const tabLabels = {
   maintenanceCalendar: "יומן",
   maintenance: "אחזקה",
   shopping: "קניות",
+  messages: "הודעות",
   hours: "שעות",
   notifications: "התראות",
   pool: "בריכה"
 };
 
 const today = () => new Date().toISOString().slice(0, 10);
+const oneHourFromNow = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
 const addDays = (date, days) => {
   const next = new Date(`${date}T12:00:00`);
   next.setDate(next.getDate() + days);
@@ -59,6 +61,15 @@ const newId = () => `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 const isDone = (row) => row.status === "done" || row.status === "completed";
 const isPurchased = (row) => row.status === "purchased";
 const sameText = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+const userDisplayName = (user) => user?.display || user?.username || "";
+const isUnread = (row) => row.read !== true && row.read !== "TRUE";
+const isMessageForUser = (row, user) =>
+  Boolean(user) &&
+  (sameText(row.to, user.username) || sameText(row.to, user.role) || sameText(row.toName, user.display));
+const isMessageFromUser = (row, user) =>
+  Boolean(user) && (sameText(row.from, user.username) || sameText(row.fromName, user.display));
+const isMessageVisible = (row, user) => isMessageForUser(row, user) || isMessageFromUser(row, user);
+const messageSortNewest = (a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
 const isShoppingRequestedByUser = (row, user) =>
   sameText(row.requestedById, user.username) ||
   sameText(row.requestedBy, user.username) ||
@@ -380,6 +391,7 @@ function extractReportRows(sheetRows, requiredHeaders) {
 }
 
 async function readReportSheet(file) {
+  const XLSX = await import("xlsx");
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { cellDates: true, type: "array" });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
@@ -1028,6 +1040,9 @@ export default function App() {
   const tabs = tabSets[user.role] || tabSets.admin;
   const saving = pendingActions.size > 0;
   const tabClassName = user.role === "bookings" || user.role === "maint" ? "tabs tabs-bubbles" : "tabs";
+  const incomingMessage = (data.messages || [])
+    .filter((row) => isMessageForUser(row, user) && isUnread(row))
+    .sort(messageSortNewest)[0];
   const dismissScheduleNotice = () => {
     saveDismissedScheduleNotice(scheduleNotice?.signature);
     setScheduleNotice(null);
@@ -1087,9 +1102,18 @@ export default function App() {
       )}
       {tab === "maintenance" && <MaintenancePanel rows={data.maintenance} turnovers={data.turnovers} saving={saving} user={user} actions={actions} />}
       {tab === "shopping" && <ShoppingPanel rows={data.shopping} saving={saving} user={user} users={data.users} actions={actions} />}
+      {tab === "messages" && <MessagesPanel rows={data.messages} users={data.users} user={user} actions={actions} />}
       {tab === "hours" && <HoursPanel rows={data.hours} saving={saving} user={user} users={data.users} actions={actions} />}
       {tab === "notifications" && <NotificationsPanel rows={data.notifications} turnovers={data.turnovers} saving={saving} user={user} users={data.users} actions={actions} />}
       {tab === "pool" && <PoolPanel logs={data.pool_logs} equipment={data.pool_equipment} saving={saving} user={user} actions={actions} />}
+      {incomingMessage && (
+        <MessagePopup
+          message={incomingMessage}
+          threadRows={(data.messages || []).filter((row) => row.threadId === incomingMessage.threadId).sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")))}
+          user={user}
+          actions={actions}
+        />
+      )}
     </main>
   );
 }
@@ -1167,7 +1191,7 @@ function Dashboard({ data, onNavigate }) {
       <div className="dashboard-grid">
         <section className="panel">
           <SectionHead title="היום" badge={`${todayOpen.length} לטיפול`} />
-          <MiniRows rows={todayOpen} empty="אין חדרים פתוחים להיום" getTitle={(row) => row.room} getMeta={(row) => `${row.guests || 0} אורחים${row.notes ? ` · ${row.notes}` : ""}`} />
+          <MiniRows rows={todayOpen} empty="אין חדרים פתוחים להיום" getTitle={(row) => row.room} getMeta={(row) => `${row.guests || 0} אורחים${compactBookingNote(row.notes) ? ` · ${compactBookingNote(row.notes)}` : ""}`} />
         </section>
         <section className="panel">
           <SectionHead title="דחוף" badge={`${urgent.length} משימות`} />
@@ -2233,7 +2257,13 @@ function HouseRoomCard({ row, user, completing, onComplete, actions, showComplet
         </div>
       )}
 
-      {compactBookingNote(row.notes) && <div className="house-note">{compactBookingNote(row.notes)}</div>}
+      {compactBookingNote(row.notes) && (
+        <div className="house-note">
+          {compactBookingNote(row.notes).split(" · ").map((part) => (
+            <span key={part}>{part}</span>
+          ))}
+        </div>
+      )}
 
       <div className={`house-issue ${issueOpen || issueText ? "open" : ""}`}>
         <button className="danger-soft house-issue-toggle" type="button" onClick={() => setIssueOpen((current) => !current)}>
@@ -2610,6 +2640,152 @@ function isHouseOrMaintenanceHour(row) {
     value.includes("offer") ||
     value.includes("ofer") ||
     value.includes("עופר")
+  );
+}
+
+function MessagesPanel({ rows = [], users = [], user, actions }) {
+  const recipients = users.filter((person) => !sameText(person.username, user.username));
+  const [form, setForm] = useState({
+    to: recipients[0]?.username || "",
+    message: ""
+  });
+  const visibleRows = rows.filter((row) => isMessageVisible(row, user)).sort(messageSortNewest);
+
+  useEffect(() => {
+    if (!form.to && recipients[0]?.username) {
+      setForm((current) => ({ ...current, to: recipients[0].username }));
+    }
+  }, [form.to, recipients]);
+
+  const submit = (event) => {
+    event.preventDefault();
+    const recipient = recipients.find((person) => sameText(person.username, form.to));
+    const text = form.message.trim();
+    if (!recipient || !text) return;
+    const threadId = newId();
+    actions.add(TABLES.messages, {
+      id: newId(),
+      threadId,
+      from: user.username,
+      fromName: userDisplayName(user),
+      to: recipient.username,
+      toName: userDisplayName(recipient),
+      message: text,
+      read: false,
+      createdAt: nowIso(),
+      expiresAt: oneHourFromNow()
+    });
+    setForm((current) => ({ ...current, message: "" }));
+  };
+
+  return (
+    <section className="panel messages-panel">
+      <SectionHead title="הודעות" badge={`${visibleRows.length} הודעות`} />
+      <form className="form message-compose" onSubmit={submit}>
+        <div className="form-row two">
+          <label>
+            נמען
+            <select value={form.to} onChange={(event) => setForm({ ...form, to: event.target.value })}>
+              {recipients.map((person) => (
+                <option key={person.username} value={person.username}>
+                  {userDisplayName(person)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            הודעה
+            <textarea value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} placeholder="כתבו הודעה קצרה" />
+          </label>
+        </div>
+        <button className="primary" disabled={!form.to || !form.message.trim() || actions.isPending(`add:${TABLES.messages}`)} type="submit">
+          {actions.isPending(`add:${TABLES.messages}`) ? "שולח..." : "שלח"}
+        </button>
+      </form>
+      <ListBlock title="שיחות אחרונות" empty="אין הודעות פעילות">
+        {visibleRows.map((row) => (
+          <article className={`list-item message-row ${isMessageForUser(row, user) && isUnread(row) ? "unread" : ""}`} key={row.id}>
+            <div>
+              <strong>{isMessageFromUser(row, user) ? `אל ${row.toName || row.to}` : `מאת ${row.fromName || row.from}`}</strong>
+              <p>{row.message}</p>
+              <small>
+                <DateText>{formatDateTime(row.createdAt)}</DateText>
+              </small>
+            </div>
+            {isMessageForUser(row, user) && isUnread(row) && (
+              <div className="actions">
+                <button type="button" onClick={() => actions.update(TABLES.messages, { ...row, read: true })}>
+                  נקרא
+                </button>
+              </div>
+            )}
+          </article>
+        ))}
+      </ListBlock>
+    </section>
+  );
+}
+
+function MessagePopup({ message, threadRows, user, actions }) {
+  const [reply, setReply] = useState("");
+
+  useEffect(() => {
+    setReply("");
+  }, [message.id]);
+
+  const close = () => {
+    actions.update(TABLES.messages, { ...message, read: true });
+  };
+
+  const sendReply = (event) => {
+    event.preventDefault();
+    const text = reply.trim();
+    if (!text) return;
+    actions.add(TABLES.messages, {
+      id: newId(),
+      threadId: message.threadId || message.id,
+      from: user.username,
+      fromName: userDisplayName(user),
+      to: message.from,
+      toName: message.fromName || message.from,
+      message: text,
+      read: false,
+      createdAt: nowIso(),
+      expiresAt: oneHourFromNow()
+    });
+    close();
+  };
+
+  return (
+    <div className="modal-backdrop message-backdrop">
+      <div className="calendar-modal message-modal" role="dialog" aria-modal="true">
+        <div className="calendar-modal-head">
+          <div>
+            <span className="muted">הודעה פנימית</span>
+            <h3>{message.fromName || message.from}</h3>
+          </div>
+          <button type="button" onClick={close}>סגור</button>
+        </div>
+        <div className="message-thread">
+          {threadRows.map((row) => (
+            <div className={`message-bubble ${isMessageFromUser(row, user) ? "mine" : "theirs"}`} key={row.id}>
+              <strong>{isMessageFromUser(row, user) ? "אני" : row.fromName || row.from}</strong>
+              <p>{row.message}</p>
+              <small><DateText>{formatDateTime(row.createdAt)}</DateText></small>
+            </div>
+          ))}
+        </div>
+        <form className="form message-reply" onSubmit={sendReply}>
+          <label>
+            תגובה
+            <textarea value={reply} onChange={(event) => setReply(event.target.value)} placeholder="כתבו תגובה" />
+          </label>
+          <button className="primary" disabled={!reply.trim() || actions.isPending(`add:${TABLES.messages}`)} type="submit">
+            {actions.isPending(`add:${TABLES.messages}`) ? "שולח..." : "שלח תגובה"}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
 
