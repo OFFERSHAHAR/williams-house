@@ -860,7 +860,7 @@ export default function App() {
     });
   };
 
-  const isPending = (key) => pendingActions.has(key);
+  const isPending = () => false;
 
   const runInBackground = (operation, messages, actionKey) => {
     pendingWritesRef.current += 1;
@@ -981,11 +981,8 @@ export default function App() {
       setError("");
       return Promise.resolve();
     },
-    syncReports: async (nextReportRows, summary) => {
+    syncReports: (nextReportRows, summary) => {
       const actionKey = "sync:reports";
-      pendingWritesRef.current += 1;
-      markPending(actionKey, true);
-      setActionNotice({ type: "pending", text: "שומר דוחות בשיטס..." });
       applyOptimisticData((current) => ({
         ...current,
         turnovers: [
@@ -993,25 +990,14 @@ export default function App() {
           ...nextReportRows
         ]
       }));
-      try {
-        const result = await syncReportTurnovers(nextReportRows, summary);
-        await loadData();
-        setActionNotice({ type: "success", text: "הדוחות נשמרו בשיטס" });
-        window.setTimeout(() => {
-          setActionNotice((current) => (current?.text === "הדוחות נשמרו בשיטס" ? null : current));
-        }, 1800);
-        setError("");
-        return result;
-      } catch (err) {
-        const message = err.message || String(err);
-        setActionNotice({ type: "error", text: `שגיאה: ${message}` });
-        setError(message);
-        await loadData().catch(() => {});
-        throw err;
-      } finally {
-        pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
-        markPending(actionKey, false);
-      }
+
+      runInBackground(
+        () => syncReportTurnovers(nextReportRows, summary),
+        { pending: "שומר דוחות ברקע...", success: "הדוחות נשמרו בשיטס" },
+        actionKey
+      );
+      setError("");
+      return Promise.resolve({ ...summary, queued: true });
     },
     remove: (table, id) => {
       const actionKey = `remove:${table}:${id}`;
@@ -2714,23 +2700,30 @@ function MessagesPanel({ rows = [], users = [], user, actions }) {
   return (
     <section className="panel messages-panel">
       <SectionHead title="הודעות" badge={`${visibleRows.length} הודעות`} />
-      <form className="form message-compose" onSubmit={submit}>
-        <div className="form-row two">
-          <label>
-            נמען
-            <select value={form.to} onChange={(event) => setForm({ ...form, to: event.target.value })}>
-              {recipients.map((person) => (
-                <option key={person.username} value={person.username}>
-                  {userDisplayName(person)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            הודעה
-            <textarea value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} placeholder="כתבו הודעה קצרה" />
-          </label>
+      <form className="message-compose" onSubmit={submit}>
+        <div className="message-compose-head">
+          <div>
+            <span className="muted">הודעה חדשה</span>
+            <h3>שליחה פנימית</h3>
+          </div>
+          <strong>{form.message.trim().length}</strong>
         </div>
+        <div className="message-recipient-pills" aria-label="נמען">
+          {recipients.map((person) => (
+            <button
+              className={sameText(person.username, form.to) ? "active" : ""}
+              key={person.username}
+              type="button"
+              onClick={() => setForm({ ...form, to: person.username })}
+            >
+              {userDisplayName(person)}
+            </button>
+          ))}
+        </div>
+        <label className="message-compose-text">
+          <span>הודעה</span>
+          <textarea value={form.message} onChange={(event) => setForm({ ...form, message: event.target.value })} placeholder="כתבו הודעה קצרה" />
+        </label>
         <button className="primary" disabled={!form.to || !form.message.trim() || actions.isPending(`add:${TABLES.messages}`)} type="submit">
           {actions.isPending(`add:${TABLES.messages}`) ? "שולח..." : "שלח"}
         </button>
