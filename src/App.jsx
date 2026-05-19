@@ -218,6 +218,10 @@ function isArrivalEvent(row) {
   return type === "arrival" || type === "swap";
 }
 
+function isPureArrivalEvent(row) {
+  return reportEventType(row) === "arrival";
+}
+
 function isDepartureEvent(row) {
   return reportEventType(row) === "departure";
 }
@@ -226,17 +230,62 @@ function isSwapEvent(row) {
   return reportEventType(row) === "swap";
 }
 
-function reportEventKey(row) {
+function roomDateKey(row) {
   return [
-    reportEventType(row),
-    reportBookingId(row),
     String(row?.room || "").trim().toLowerCase(),
     String(row?.date || "").slice(0, 10)
   ].join("|");
 }
 
+function reportEventKey(row) {
+  return [
+    reportEventType(row),
+    reportBookingId(row),
+    roomDateKey(row)
+  ].join("|");
+}
+
 function uniqueReportEvents(rows) {
   return [...new Map(rows.map((row) => [reportEventKey(row), row])).values()];
+}
+
+function mergeScheduleListRows(rows) {
+  const priority = { swap: 0, arrival: 1, departure: 2, block: 3 };
+  const grouped = new Map();
+
+  rows.forEach((row) => {
+    const key = roomDateKey(row);
+    if (!key) return;
+    const type = reportEventType(row);
+    const current = grouped.get(key) || {
+      ...row,
+      id: `group-${key}`,
+      events: new Set(),
+      eventRows: [],
+      editRow: null
+    };
+    current.events.add(type);
+    current.eventRows.push(row);
+
+    const currentType = reportEventType(current.editRow || current);
+    if (!current.editRow || (priority[type] ?? 99) < (priority[currentType] ?? 99)) {
+      current.editRow = row;
+      Object.assign(current, row);
+    }
+
+    grouped.set(key, current);
+  });
+
+  return [...grouped.values()].map((row) => {
+    const eventTypes = [...row.events];
+    return {
+      ...row,
+      id: `group-${roomDateKey(row)}`,
+      eventTypes,
+      isOccupied: eventTypes.includes("swap") || row.isOccupied,
+      status: row.editRow?.status || row.status
+    };
+  });
 }
 
 function reportEventClass(row) {
@@ -245,6 +294,7 @@ function reportEventClass(row) {
 
 function reportEventLabel(row) {
   if (isMaintenanceReportTurnover(row)) return "אחזקה";
+  if (reportEventType(row) === "block") return "אחזקה";
   return REPORT_EVENT_LABELS[reportEventType(row)] || "כניסה";
 }
 
@@ -1245,14 +1295,18 @@ function BookingTurnoversPanel({ rows, reportSync = [], saving, actions }) {
   });
   const [duplicateNotice, setDuplicateNotice] = useState("");
   const [pendingOverride, setPendingOverride] = useState(null);
+  const [listFilters, setListFilters] = useState({ room: "", date: "" });
   const todayDate = today();
-  const todayRows = rows
-    .filter((row) => String(row.date || "").slice(0, 10) === todayDate)
+  const todayRows = mergeScheduleListRows(uniqueReportEvents(rows.filter((row) => String(row.date || "").slice(0, 10) === todayDate)))
     .sort((a, b) => String(a.room || "").localeCompare(String(b.room || "")));
-  const futureRows = rows
-    .filter((row) => String(row.date || "").slice(0, 10) > todayDate)
+  const futureRows = mergeScheduleListRows(uniqueReportEvents(rows.filter((row) => String(row.date || "").slice(0, 10) > todayDate)))
     .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || String(a.room || "").localeCompare(String(b.room || "")));
-  const visibleRows = view === "today" ? todayRows : futureRows;
+  const baseVisibleRows = view === "today" ? todayRows : futureRows;
+  const visibleRows = baseVisibleRows.filter((row) => {
+    const rowDate = String(row.date || "").slice(0, 10);
+    return (!listFilters.room || row.room === listFilters.room) && (!listFilters.date || rowDate === listFilters.date);
+  });
+  const hasListFilters = Boolean(listFilters.room || listFilters.date);
 
   useEffect(() => {
     if (!form.room && roomOptions.length) {
@@ -1342,14 +1396,12 @@ function BookingTurnoversPanel({ rows, reportSync = [], saving, actions }) {
             {duplicateNotice && <div className="notice error compact">{duplicateNotice}</div>}
             <label>
               בחרי חדר
-              <div className="room-picker-with-swap">
-                <div className="room-picker">
-                  {roomOptions.map((room) => (
-                    <button className={form.room === room ? "active" : ""} key={room} type="button" onClick={() => setForm({ ...form, room })}>
-                      {room}
-                    </button>
-                  ))}
-                </div>
+              <div className="room-picker">
+                {roomOptions.map((room) => (
+                  <button className={form.room === room ? "active" : ""} key={room} type="button" onClick={() => setForm({ ...form, room })}>
+                    {room}
+                  </button>
+                ))}
                 <button
                   className={form.isOccupied ? "swap-toggle active" : "swap-toggle"}
                   type="button"
@@ -1443,7 +1495,34 @@ function BookingTurnoversPanel({ rows, reportSync = [], saving, actions }) {
       ) : view === "reports" ? (
         <ReportsImportPanel rows={rows} reportSync={reportSync} actions={actions} />
       ) : (
-        <TurnoverList title={view === "today" ? "חדרים להיום" : "חדרים עתידיים"} rows={visibleRows} allRows={rows} actions={actions} readOnly canEdit />
+        <>
+          <div className="list-filters" aria-label="סינון חדרים">
+            <label>
+              חדר
+              <select value={listFilters.room} onChange={(event) => setListFilters((current) => ({ ...current, room: event.target.value }))}>
+                <option value="">כל החדרים</option>
+                {roomOptions.map((room) => (
+                  <option key={room} value={room}>{room}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              תאריך
+              <input type="date" value={listFilters.date} onChange={(event) => setListFilters((current) => ({ ...current, date: event.target.value }))} />
+            </label>
+            <button type="button" disabled={!hasListFilters} onClick={() => setListFilters({ room: "", date: "" })}>
+              נקה סינון
+            </button>
+          </div>
+          <TurnoverList
+            title={view === "today" ? "חדרים להיום" : "חדרים עתידיים"}
+            rows={visibleRows}
+            allRows={rows}
+            actions={actions}
+            readOnly
+            canEdit
+          />
+        </>
       )}
     </section>
   );
@@ -1632,7 +1711,8 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
   const [selectedDay, setSelectedDay] = useState(null);
   const [editingRow, setEditingRow] = useState(null);
   const monthRows = uniqueReportEvents(rows.filter((row) => monthKey(row.date) === month));
-  const rowsByDate = monthRows.reduce((acc, row) => {
+  const calendarRows = mergeScheduleListRows(monthRows);
+  const rowsByDate = calendarRows.reduce((acc, row) => {
     const date = String(row.date || "").slice(0, 10);
     if (!date) return acc;
     if (!acc[date]) acc[date] = [];
@@ -1650,14 +1730,14 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
       return { key: date, date, day, rows: rowsByDate[date] || [] };
     })
   ];
-  const arrivalRows = monthRows.filter(isArrivalEvent);
-  const departureRows = monthRows.filter(isDepartureEvent);
-  const swapRows = monthRows.filter(isSwapEvent);
-  const departureSummaryRows = uniqueReportEvents([...departureRows, ...swapRows]);
+  const arrivalRows = calendarRows.filter(isPureArrivalEvent);
+  const swapRows = calendarRows.filter(isSwapEvent);
+  const departureRows = calendarRows.filter(isDepartureEvent);
+  const selectedDayRows = selectedDay?.rows || [];
   const summaryGroups = [
     { key: "arrivals", label: "כניסות", className: "stat-arrival", rows: arrivalRows },
     { key: "swaps", label: "החלפות", className: "stat-swap", rows: swapRows },
-    { key: "departures", label: "עזיבות", className: "stat-departure", rows: departureSummaryRows }
+    { key: "departures", label: "עזיבות", className: "stat-departure", rows: departureRows }
   ];
 
   return (
@@ -1709,7 +1789,7 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
           <button
             className={[
               cell.empty ? "calendar-day empty-day" : cell.rows.length ? "calendar-day has-entries" : "calendar-day",
-              !cell.empty && cell.rows.some(isArrivalEvent) ? "has-arrivals" : "",
+              !cell.empty && cell.rows.some(isPureArrivalEvent) ? "has-arrivals" : "",
               !cell.empty && cell.rows.some(isSwapEvent) ? "has-swaps" : "",
               !cell.empty && cell.rows.some(isDepartureEvent) ? "has-departures" : ""
             ].filter(Boolean).join(" ")}
@@ -1723,11 +1803,11 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                 <span className="calendar-date">{cell.day}</span>
                 {cell.rows.length > 0 && (
                   <div className="calendar-event-counts">
-                    {cell.rows.filter(isArrivalEvent).length > 0 && <span className="count-arrival">{cell.rows.filter(isArrivalEvent).length}</span>}
+                    {cell.rows.filter(isPureArrivalEvent).length > 0 && <span className="count-arrival">{cell.rows.filter(isPureArrivalEvent).length}</span>}
                     {cell.rows.filter(isSwapEvent).length > 0 && <span className="count-swap">{cell.rows.filter(isSwapEvent).length}</span>}
-                    {uniqueReportEvents([...cell.rows.filter(isDepartureEvent), ...cell.rows.filter(isSwapEvent)]).length > 0 && (
+                    {cell.rows.filter(isDepartureEvent).length > 0 && (
                       <span className="count-departure">
-                        {uniqueReportEvents([...cell.rows.filter(isDepartureEvent), ...cell.rows.filter(isSwapEvent)]).length}
+                        {cell.rows.filter(isDepartureEvent).length}
                       </span>
                     )}
                   </div>
@@ -1757,9 +1837,9 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                 סגור
               </button>
             </div>
-            {selectedDay.rows.length ? (
+            {selectedDayRows.length ? (
               <div className="calendar-modal-list">
-                {selectedDay.rows.map((row, index) => (
+                {selectedDayRows.map((row, index) => (
                   <article className={`calendar-modal-item ${reportEventClass(row)}`} key={`${reportEventKey(row)}-${index}`}>
                     {editingRow?.id === row.id ? (
                       <TurnoverEditForm row={row} rows={rows} actions={actions} onCancel={() => setEditingRow(null)} onSaved={() => setEditingRow(null)} />
@@ -1773,7 +1853,6 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                           {row.isReturning ? " · לקוח חוזר" : " · לקוח חדש"}
                           {row.isOccupied ? " · החלפה" : ""}
                         </p>
-                        {row.notes && <small>{row.notes}</small>}
                         {canEdit && actions && (
                           <div className="actions calendar-modal-actions">
                             <button className="edit-button" type="button" onClick={() => setEditingRow(row)}>
@@ -1800,25 +1879,38 @@ function getRoomOptions(rows) {
   return BOOKING_ROOMS;
 }
 
+function scheduleListLabels(row) {
+  const types = row.eventTypes?.length ? row.eventTypes : [reportEventType(row)];
+  const ordered = ["arrival", "swap", "departure", "block"];
+  return ordered
+    .filter((type) => types.includes(type))
+    .map((type) => type === "block" ? "אחזקה" : REPORT_EVENT_LABELS[type])
+    .filter(Boolean);
+}
+
 function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, canEdit = false }) {
   const [editingId, setEditingId] = useState("");
   return (
     <ListBlock title={title} empty="אין סידורים להצגה">
-      {rows.map((row) => (
+      {rows.map((row) => {
+        const editRow = row.editRow || row;
+        const labels = scheduleListLabels(row);
+        return (
         <article className={row.isOccupied ? "list-item turnover-swap" : "list-item"} key={row.id}>
           {editingId === row.id ? (
-            <TurnoverEditForm row={row} rows={allRows} actions={actions} onCancel={() => setEditingId("")} onSaved={() => setEditingId("")} />
+            <TurnoverEditForm row={editRow} rows={allRows} actions={actions} onCancel={() => setEditingId("")} onSaved={() => setEditingId("")} />
           ) : (
             <>
               <div>
                 <strong>{row.room}</strong>
                 <p>
-                  <DateText>{formatDisplayDate(row.date)}</DateText> · {row.guests || 0} אורחים
+                  <DateText>{formatDisplayDate(row.date)}</DateText>
+                  {labels.length ? ` · ${labels.join(" · ")}` : ""}
+                  {reportEventType(row) !== "departure" ? ` · ${row.guests || 0} אורחים` : ""}
                   {row.children ? ` · ${row.children} ילדים` : ""}
                   {row.babies ? ` · ${row.babies} תינוקות` : ""}
                   {row.isReturning ? " · לקוח חוזר" : " · לקוח חדש"}
-                  {row.isOccupied ? " · החלפה" : ""}
-                  {row.notes ? ` · ${row.notes}` : ""}
+                  {!row.eventTypes?.length && row.notes ? ` · ${row.notes}` : ""}
                 </p>
               </div>
               <div className="actions">
@@ -1846,7 +1938,8 @@ function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, 
             </>
           )}
         </article>
-      ))}
+        );
+      })}
     </ListBlock>
   );
 }

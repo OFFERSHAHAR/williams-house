@@ -1606,13 +1606,6 @@ button:disabled {
   gap: 8px;
 }
 
-.room-picker-with-swap {
-  display: grid;
-  grid-template-columns: minmax(118px, 0.42fr) minmax(0, 1fr);
-  gap: 8px;
-  align-items: stretch;
-}
-
 .room-picker button {
   min-height: 48px;
   border-radius: 18px;
@@ -1628,8 +1621,26 @@ button:disabled {
   box-shadow: 0 12px 26px rgba(17, 24, 39, 0.22);
 }
 
+.list-filters {
+  align-items: end;
+  border-top: 1px solid rgba(96, 112, 134, 0.18);
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  margin: 4px 0 16px;
+  padding-top: 14px;
+}
+
+.list-filters label {
+  margin: 0;
+}
+
+.list-filters button {
+  min-height: 54px;
+  white-space: nowrap;
+}
+
 .swap-toggle {
-  min-height: 48px;
   border-radius: 18px;
   background: rgba(255, 226, 191, 0.56);
   border: 1px solid rgba(196, 107, 0, 0.22);
@@ -2292,12 +2303,17 @@ button:disabled {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .room-picker-with-swap {
-    grid-template-columns: 1fr;
-  }
-
   .swap-toggle {
     min-height: 46px;
+  }
+
+  .list-filters {
+    grid-template-columns: 1fr;
+    margin-top: 0;
+  }
+
+  .list-filters button {
+    width: 100%;
   }
 
   .form-row,
