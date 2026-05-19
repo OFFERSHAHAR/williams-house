@@ -26,13 +26,14 @@ const roleLabels = {
 const tabSets = {
   admin: ["dashboard", "turnovers", "maintenance", "shopping", "hours", "notifications", "pool"],
   bookings: ["turnovers", "notifications"],
-  maint: ["maintenance", "hours", "pool", "shopping", "notifications"],
+  maint: ["maintenance", "maintenanceCalendar", "hours", "pool", "shopping", "notifications"],
   house: ["turnovers", "shopping", "hours", "notifications"]
 };
 
 const tabLabels = {
   dashboard: "בית",
   turnovers: "חדרים",
+  maintenanceCalendar: "יומן",
   maintenance: "אחזקה",
   shopping: "קניות",
   hours: "שעות",
@@ -149,9 +150,10 @@ function turnoverCreatedSummary(row) {
 
 function findTurnoverChanges(previousRows = [], nextRows = []) {
   const previousById = new Map(previousRows.map((row) => [row.id, row]));
-  return nextRows
+  const changes = nextRows
     .map((row) => turnoverChangeSummary(previousById.get(row.id), row))
     .filter(Boolean);
+  return [...new Set(changes)];
 }
 
 function scheduleNoticePreview(changes = []) {
@@ -1025,7 +1027,7 @@ export default function App() {
 
   const tabs = tabSets[user.role] || tabSets.admin;
   const saving = pendingActions.size > 0;
-  const tabClassName = user.role === "bookings" ? "tabs tabs-bubbles" : "tabs";
+  const tabClassName = user.role === "bookings" || user.role === "maint" ? "tabs tabs-bubbles" : "tabs";
   const dismissScheduleNotice = () => {
     saveDismissedScheduleNotice(scheduleNotice?.signature);
     setScheduleNotice(null);
@@ -1077,6 +1079,12 @@ export default function App() {
 
       {tab === "dashboard" && <Dashboard data={data} onNavigate={setTab} />}
       {tab === "turnovers" && <TurnoversPanel rows={data.turnovers} reportSync={data.report_sync} saving={saving} user={user} actions={actions} />}
+      {tab === "maintenanceCalendar" && (
+        <section className="panel booking-board">
+          <SectionHead title="יומן חדרים" badge="תצוגת תחזוקה" />
+          <BookingsCalendar rows={data.turnovers} reportSync={data.report_sync} actions={actions} />
+        </section>
+      )}
       {tab === "maintenance" && <MaintenancePanel rows={data.maintenance} turnovers={data.turnovers} saving={saving} user={user} actions={actions} />}
       {tab === "shopping" && <ShoppingPanel rows={data.shopping} saving={saving} user={user} users={data.users} actions={actions} />}
       {tab === "hours" && <HoursPanel rows={data.hours} saving={saving} user={user} users={data.users} actions={actions} />}
