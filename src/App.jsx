@@ -2790,14 +2790,14 @@ function MessagePopup({ message, threadRows, user, actions }) {
   };
 
   return (
-    <div className="modal-backdrop message-backdrop">
-      <div className="calendar-modal message-modal" role="dialog" aria-modal="true">
-        <div className="calendar-modal-head">
+    <div className="modal-backdrop message-backdrop" onClick={close}>
+      <div className="calendar-modal message-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div className="calendar-modal-head message-modal-head">
           <div>
             <span className="muted">הודעה פנימית</span>
             <h3>{message.fromName || message.from}</h3>
           </div>
-          <button type="button" onClick={close}>סגור</button>
+          <button className="message-close" type="button" onClick={close}>סגור</button>
         </div>
         <div className="message-thread">
           {threadRows.map((row) => (
