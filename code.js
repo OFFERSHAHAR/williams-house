@@ -21,7 +21,7 @@ const SPREADSHEET_ID = '1zEJS5MV8tD0Op9QKOcNGoeTihRDk7ROPFJb70aP-AaY';
 const SHEETS = {
   users:          ['username','password','role','display'],
   maintenance:    ['id','title','description','location','dueDate','status','source','urgency','createdByName','createdAt','completedAt'],
-  turnovers:      ['id','room','date','guests','children','babies','hasCrib','hasHighChair','notes','isReturning','isOccupied','status','gardenDone','gardenDoneAt','createdAt','completedAt','reportSource'],
+  turnovers:      ['id','room','date','guests','children','babies','hasCrib','hasHighChair','notes','isReturning','isOccupied','status','gardenDone','gardenDoneAt','createdAt','completedAt','reportSource','eventType','bookingId','arrivalDate','departureDate','reportMonth'],
   notifications:  ['id','for','message','room','date','read','createdAt','pushSent'],
   shopping:       ['id','item','quantity','note','requestedBy','status','requestedAt','purchasedAt','category'],
   hours:          ['id','userId','userName','date','startTime','endTime','totalHours','createdAt'],
@@ -357,8 +357,8 @@ function normalizeSyncValue_(value) {
   return String(value).trim();
 }
 
-const REPORT_COMPARE_FIELDS = ['id','room','date','guests','children','babies','notes','isOccupied'];
-const REPORT_UPDATE_FIELDS = ['id','room','date','guests','children','babies','notes','isOccupied','reportSource'];
+const REPORT_COMPARE_FIELDS = ['id','room','date','guests','children','babies','notes','isOccupied','eventType','bookingId','arrivalDate','departureDate','reportMonth'];
+const REPORT_UPDATE_FIELDS = ['id','room','date','guests','children','babies','notes','isOccupied','reportSource','eventType','bookingId','arrivalDate','departureDate','reportMonth'];
 
 function rowToRecord_(row, headers) {
   const record = {};
@@ -465,7 +465,8 @@ function syncReportTurnovers(rows, summary) {
       return record[h] === undefined || record[h] === null ? '' : record[h];
     });
     const nextRecord = rowToRecord_(row, headers);
-    const manualOverride = manualRowsByRoomDate[roomDateKey_(nextRecord)];
+    const isDeparture = String(nextRecord.eventType || '').trim() === 'departure';
+    const manualOverride = isDeparture ? null : manualRowsByRoomDate[roomDateKey_(nextRecord)];
     if (manualOverride) {
       manualOverrides.push({
         id: String(row[idIndex] || ''),
@@ -560,6 +561,7 @@ function syncReportTurnovers(rows, summary) {
     writtenRows: serverSummary.writtenRows,
     skippedRows: serverSummary.skippedRows,
     manualOverrides: serverSummary.manualOverrides,
+    reportMonth: serverSummary.reportMonth,
     total: rows.length,
     notifications: notifications.length,
     syncRecord: syncRecord
