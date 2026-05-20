@@ -699,11 +699,23 @@ function sendOneSignalPush(title, message, target = "admin") {
   const apiKey = props.getProperty("ONESIGNAL_REST_API_KEY");
 
   if (!appId) {
-    throw new Error("Missing ONESIGNAL_APP_ID in Script Properties");
+    Logger.log("Push skipped: Missing ONESIGNAL_APP_ID in Script Properties");
+    return {
+      ok: false,
+      skipped: true,
+      code: 0,
+      body: "missing app id"
+    };
   }
 
   if (!apiKey) {
-    throw new Error("Missing ONESIGNAL_REST_API_KEY in Script Properties");
+    Logger.log("Push skipped: Missing ONESIGNAL_REST_API_KEY in Script Properties");
+    return {
+      ok: false,
+      skipped: true,
+      code: 0,
+      body: "missing api key"
+    };
   }
 
   const safeTitle = String(title || "בית ויליאמס").trim() || "בית ויליאמס";
@@ -756,9 +768,23 @@ function sendOneSignalPush(title, message, target = "admin") {
     muteHttpExceptions: true
   };
 
-  const response = UrlFetchApp.fetch("https://api.onesignal.com/notifications", options);
-  const code = response.getResponseCode();
-  const body = response.getContentText();
+  let response;
+  let code;
+  let body;
+
+  try {
+    response = UrlFetchApp.fetch("https://api.onesignal.com/notifications", options);
+    code = response.getResponseCode();
+    body = response.getContentText();
+  } catch (err) {
+    Logger.log("OneSignal fetch failed: " + String(err));
+    return {
+      ok: false,
+      skipped: false,
+      code: 0,
+      body: String(err)
+    };
+  }
 
   Logger.log("OneSignal status: " + code);
   Logger.log(body);
@@ -789,7 +815,7 @@ function testOneSignalPush() {
  * דלג-ריק = לא היה טקסט הודעה
  * שגיאה = OneSignal החזיר שגיאה
  */
-function checkNotificationsAndSendPush() {
+function checkNotificationsAndSendPushLegacy_() {
   const ss = getSS();
   const sheet = ss.getSheetByName("notifications");
 
@@ -856,5 +882,99 @@ function checkNotificationsAndSendPush() {
       SpreadsheetApp.flush();
       Logger.log("Push failed for row: " + rowNumber + ", id: " + id + ", result: " + JSON.stringify(result));
     }
+  }
+}
+
+/**
+ * Hardened trigger entry point.
+ * This override is intentionally placed after the older implementation.
+ * It prevents transient Google or OneSignal errors from failing the whole trigger.
+ */
+function checkNotificationsAndSendPush() {
+  const lock = LockService.getScriptLock();
+  const hasLock = lock.tryLock(5000);
+
+  if (!hasLock) {
+    Logger.log("Push scan skipped: another run is active");
+    return;
+  }
+
+  try {
+    const ss = getSS();
+    const sheet = ss.getSheetByName("notifications");
+
+    if (!sheet) {
+      Logger.log("Push scan skipped: Sheet 'notifications' not found");
+      return;
+    }
+
+    const lastRow = sheet.getLastRow();
+
+    if (lastRow < 2) {
+      Logger.log("No notifications to check");
+      return;
+    }
+
+    const pushHeader = sheet.getRange(1, 8).getValue();
+
+    if (pushHeader !== "pushSent") {
+      sheet.getRange(1, 8).setValue("pushSent");
+    }
+
+    const rows = sheet.getRange(2, 1, lastRow - 1, 8).getValues();
+    const pushStatuses = rows.map(row => [row[7]]);
+    const maxPushesPerRun = 15;
+    let processed = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      if (processed >= maxPushesPerRun) break;
+
+      const rowNumber = i + 2;
+      const id = rows[i][0];
+      const target = String(rows[i][1] || "").trim();
+      const message = String(rows[i][2] || "").trim();
+      const room = String(rows[i][3] || "").trim();
+      const read = rows[i][5];
+      const pushSent = rows[i][7];
+
+      const isUnread = read === false || read === "FALSE" || read === "";
+      const wasNotSent = pushSent === "" || pushSent === null;
+
+      if (!isUnread || !wasNotSent) {
+        continue;
+      }
+
+      if (!message) {
+        pushStatuses[i][0] = "skipped-empty";
+        Logger.log("Skipped empty notification message. row: " + rowNumber + ", id: " + id);
+        continue;
+      }
+
+      const title = room
+        ? "התראה חדשה - " + room
+        : "התראה חדשה מבית ויליאמס";
+
+      const result = sendOneSignalPush(title, message, target);
+      processed += 1;
+
+      if (result && result.ok) {
+        pushStatuses[i][0] = "yes";
+        Logger.log("Push sent. row: " + rowNumber + ", id: " + id);
+      } else if (result && result.skipped) {
+        pushStatuses[i][0] = "skipped";
+        Logger.log("Push skipped. row: " + rowNumber + ", id: " + id + ", result: " + JSON.stringify(result));
+      } else {
+        pushStatuses[i][0] = result && result.code ? "error " + result.code : "error";
+        Logger.log("Push failed. row: " + rowNumber + ", id: " + id + ", result: " + JSON.stringify(result));
+      }
+    }
+
+    sheet.getRange(2, 8, pushStatuses.length, 1).setValues(pushStatuses);
+    SpreadsheetApp.flush();
+    Logger.log("Push scan complete. processed: " + processed);
+  } catch (err) {
+    Logger.log("Push scan failed safely: " + String(err));
+  } finally {
+    lock.releaseLock();
   }
 }
