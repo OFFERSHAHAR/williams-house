@@ -450,11 +450,12 @@ h2 {
 
 .action-toast {
   position: fixed;
-  left: 16px;
-  bottom: calc(18px + env(safe-area-inset-bottom));
+  top: calc(12px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 120;
   min-width: 132px;
-  max-width: min(320px, calc(100vw - 32px));
+  max-width: min(380px, calc(100vw - 32px));
   padding: 12px 16px;
   border-radius: 18px;
   background: rgba(17, 24, 39, 0.92);
@@ -463,7 +464,7 @@ h2 {
   font-size: 14px;
   font-weight: 950;
   text-align: center;
-  animation: slide-in 220ms ease both;
+  animation: toast-drop 180ms ease both;
 }
 
 .action-toast.pending {
@@ -490,6 +491,14 @@ h2 {
 
 .action-toast.error {
   background: rgba(217, 45, 32, 0.94);
+}
+
+button {
+  transition: transform 140ms ease, box-shadow 160ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .stat,
@@ -1833,6 +1842,39 @@ button:disabled {
   transform-origin: center bottom;
 }
 
+.maintenance-notice-backdrop {
+  align-items: center;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(18px, env(safe-area-inset-bottom));
+}
+
+.maintenance-notice-modal {
+  width: min(92vw, 560px);
+  min-height: auto;
+  gap: 18px;
+  padding: 26px;
+}
+
+.maintenance-notice-card {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.64);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  color: var(--ink-2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.maintenance-notice-card strong {
+  font-size: clamp(18px, 3.5vw, 24px);
+  line-height: 1.45;
+}
+
+.maintenance-notice-card small {
+  color: var(--ink-3);
+  font-weight: 800;
+}
+
 .message-modal::before {
   content: "";
   position: absolute;
@@ -2258,6 +2300,17 @@ button:disabled {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes toast-drop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -12px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
   }
 }
 

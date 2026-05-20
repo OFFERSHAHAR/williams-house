@@ -58,11 +58,22 @@ const addMonths = (key, months) => {
 const formatMonthName = (key) => new Date(`${monthStart(key)}T12:00:00`).toLocaleDateString("he-IL", { month: "long", year: "numeric" });
 const nowIso = () => new Date().toISOString();
 const newId = () => `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+const hapticTap = (duration = 8) => {
+  if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+    navigator.vibrate(duration);
+  }
+};
 const isDone = (row) => row.status === "done" || row.status === "completed";
 const isPurchased = (row) => row.status === "purchased";
 const sameText = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
 const userDisplayName = (user) => user?.display || user?.username || "";
 const isUnread = (row) => row.read !== true && row.read !== "TRUE";
+const isNotificationForUser = (row, user) =>
+  Boolean(user) && (sameText(row.for, user.username) || sameText(row.for, user.role) || sameText(row.for, "all"));
+const isMaintenanceNotification = (row) => {
+  const text = `${row.room || ""} ${row.message || ""}`.toLowerCase();
+  return text.includes("משימת אחזקה") || text.includes("תקלה") || text.includes("maintenance");
+};
 const isMessageForUser = (row, user) =>
   Boolean(user) &&
   (sameText(row.to, user.username) || sameText(row.to, user.role) || sameText(row.toName, user.display));
@@ -811,6 +822,7 @@ export default function App() {
   const [scheduleNotice, setScheduleNotice] = useState(null);
   const [pendingActions, setPendingActions] = useState(() => new Set());
   const [actionNotice, setActionNotice] = useState(null);
+  const [hiddenMaintenanceNotices, setHiddenMaintenanceNotices] = useState([]);
   const pendingWritesRef = useRef(0);
   const previousTurnoversRef = useRef(cachedSnapshot?.data?.turnovers || []);
   const [user, setUser] = useState(() => {
@@ -899,6 +911,11 @@ export default function App() {
   };
 
   const isPending = () => false;
+
+  useEffect(() => {
+    if (!actionNotice) return;
+    hapticTap(actionNotice.type === "error" ? 18 : 9);
+  }, [actionNotice]);
 
   const runInBackground = (operation, messages, actionKey) => {
     pendingWritesRef.current += 1;
@@ -1090,13 +1107,19 @@ export default function App() {
   const saving = pendingActions.size > 0;
   const tabClassName = "tabs tabs-premium";
   const changeTab = (item) => {
-    if (item !== tab && typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
-      navigator.vibrate(12);
-    }
+    if (item !== tab) hapticTap(12);
     setTab(item);
   };
   const incomingMessage = (data.messages || [])
     .filter((row) => isMessageForUser(row, user) && isUnread(row))
+    .sort(messageSortNewest)[0];
+  const incomingMaintenanceNotice = (data.notifications || [])
+    .filter((row) =>
+      isNotificationForUser(row, user) &&
+      isUnread(row) &&
+      isMaintenanceNotification(row) &&
+      !hiddenMaintenanceNotices.includes(row.id)
+    )
     .sort(messageSortNewest)[0];
   const dismissScheduleNotice = () => {
     saveDismissedScheduleNotice(scheduleNotice?.signature);
@@ -1104,7 +1127,9 @@ export default function App() {
   };
 
   return (
-    <main className="screen app-shell">
+    <main className="screen app-shell" onClickCapture={(event) => {
+      if (event.target.closest("button")) hapticTap(7);
+    }}>
       <header className="header">
         <div>
           <p className="eyebrow">Williams House</p>
@@ -1161,6 +1186,14 @@ export default function App() {
       {tab === "hours" && <HoursPanel rows={data.hours} saving={saving} user={user} users={data.users} actions={actions} />}
       {tab === "notifications" && <NotificationsPanel rows={data.notifications} turnovers={data.turnovers} saving={saving} user={user} users={data.users} actions={actions} />}
       {tab === "pool" && <PoolPanel logs={data.pool_logs} equipment={data.pool_equipment} saving={saving} user={user} actions={actions} />}
+      {incomingMaintenanceNotice && (
+        <MaintenanceNoticePopup
+          notice={incomingMaintenanceNotice}
+          user={user}
+          actions={actions}
+          onExit={() => setHiddenMaintenanceNotices((current) => [...current, incomingMaintenanceNotice.id])}
+        />
+      )}
       {incomingMessage && (
         <MessagePopup
           message={incomingMessage}
@@ -2810,6 +2843,45 @@ function MessagesPanel({ rows = [], users = [], user, actions }) {
         ))}
       </ListBlock>
     </section>
+  );
+}
+
+function MaintenanceNoticePopup({ notice, user, actions, onExit }) {
+  const confirmRead = () => {
+    actions.update(TABLES.notifications, { ...notice, read: true });
+    if (notice.room !== "אישור אחזקה") {
+      actions.add(TABLES.notifications, {
+        id: newId(),
+        for: "admin",
+        room: "אישור אחזקה",
+        date: today(),
+        message: `${userDisplayName(user)} קרא/ה משימת אחזקה: ${notice.message || ""}`,
+        read: false,
+        createdAt: nowIso(),
+        pushSent: ""
+      });
+    }
+  };
+
+  return (
+    <div className="modal-backdrop maintenance-notice-backdrop" onClick={onExit}>
+      <div className="calendar-modal maintenance-notice-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div className="calendar-modal-head message-modal-head">
+          <div>
+            <span className="muted">משימת אחזקה חדשה</span>
+            <h3>{notice.room || "אחזקה"}</h3>
+          </div>
+          <button className="message-close" type="button" onClick={onExit}>יציאה</button>
+        </div>
+        <div className="maintenance-notice-card">
+          <strong>{notice.message || "נפתחה משימת אחזקה"}</strong>
+          {notice.date && <small><DateText>{formatDisplayDate(notice.date)}</DateText></small>}
+        </div>
+        <button className="primary" type="button" onClick={confirmRead}>
+          קראתי
+        </button>
+      </div>
+    </div>
   );
 }
 
