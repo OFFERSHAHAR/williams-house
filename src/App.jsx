@@ -274,13 +274,42 @@ function isSwapEvent(row) {
   return reportEventType(row) === "swap";
 }
 
-function vacantRoomsForDate(date, rows) {
+function reportRangeRows(rows) {
   const rangeRows = rows.filter((row) => {
     const room = String(row?.room || "").trim();
     const arrivalDate = String(row?.arrivalDate || "").slice(0, 10);
     const departureDate = String(row?.departureDate || "").slice(0, 10);
     return room && arrivalDate && departureDate;
   });
+  const grouped = new Map();
+
+  rows.forEach((row) => {
+    const bookingId = reportBookingId(row);
+    const room = String(row?.room || "").trim();
+    if (!bookingId || !room) return;
+    const key = `${room}|${bookingId}`;
+    const current = grouped.get(key) || { room, bookingId, arrival: null, departure: null };
+    if (isArrivalEvent(row)) current.arrival = row;
+    if (isDepartureEvent(row)) current.departure = row;
+    grouped.set(key, current);
+  });
+
+  const pairedRows = [...grouped.values()]
+    .filter((group) => group.arrival && group.departure)
+    .map((group) => ({
+      ...group.arrival,
+      room: group.room,
+      bookingId: group.bookingId,
+      arrivalDate: String(group.arrival.date || "").slice(0, 10),
+      departureDate: String(group.departure.date || "").slice(0, 10)
+    }))
+    .filter((row) => row.arrivalDate && row.departureDate && row.arrivalDate < row.departureDate);
+
+  return [...rangeRows, ...pairedRows];
+}
+
+function vacantRoomsForDate(date, rows) {
+  const rangeRows = reportRangeRows(rows);
 
   const sameDayBusyRooms = new Set(
     rows
@@ -364,12 +393,7 @@ function occupiedQuietRoomsForDate(date, rows, vacantRooms = []) {
       .map((row) => String(row.room || "").trim())
       .filter(Boolean)
   );
-  const rangeRows = rows.filter((row) => {
-    const room = String(row?.room || "").trim();
-    const arrivalDate = String(row?.arrivalDate || "").slice(0, 10);
-    const departureDate = String(row?.departureDate || "").slice(0, 10);
-    return room && arrivalDate && departureDate && reportEventType(row) !== "block" && !isMaintenanceReportTurnover(row);
-  });
+  const rangeRows = reportRangeRows(rows).filter((row) => reportEventType(row) !== "block" && !isMaintenanceReportTurnover(row));
 
   return BOOKING_ROOMS.filter((room) => {
     if (sameDayActiveRooms.has(room) || vacantRoomSet.has(room)) return false;
