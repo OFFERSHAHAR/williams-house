@@ -352,6 +352,35 @@ function vacantRoomsForDate(date, rows) {
   ) && !sameDayBusyRooms.has(room) && !occupiedRooms.has(room) && !blockedRooms.has(room));
 }
 
+function occupiedQuietRoomsForDate(date, rows, vacantRooms = []) {
+  const vacantRoomSet = new Set(vacantRooms);
+  const sameDayActiveRooms = new Set(
+    rows
+      .filter((row) => String(row?.date || row?.arrivalDate || "").slice(0, 10) === date)
+      .filter((row) => {
+        const type = reportEventType(row);
+        return type === "arrival" || type === "swap" || type === "departure" || type === "block" || isMaintenanceReportTurnover(row);
+      })
+      .map((row) => String(row.room || "").trim())
+      .filter(Boolean)
+  );
+  const rangeRows = rows.filter((row) => {
+    const room = String(row?.room || "").trim();
+    const arrivalDate = String(row?.arrivalDate || "").slice(0, 10);
+    const departureDate = String(row?.departureDate || "").slice(0, 10);
+    return room && arrivalDate && departureDate && reportEventType(row) !== "block" && !isMaintenanceReportTurnover(row);
+  });
+
+  return BOOKING_ROOMS.filter((room) => {
+    if (sameDayActiveRooms.has(room) || vacantRoomSet.has(room)) return false;
+    return rangeRows.some((row) => {
+      const arrivalDate = String(row.arrivalDate || "").slice(0, 10);
+      const departureDate = String(row.departureDate || "").slice(0, 10);
+      return String(row.room || "").trim() === room && arrivalDate <= date && date < departureDate;
+    });
+  });
+}
+
 function roomDateKey(row) {
   return [
     String(row?.room || "").trim().toLowerCase(),
@@ -1927,7 +1956,8 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
       const date = `${month}-${String(day).padStart(2, "0")}`;
       const dayRows = rowsByDate[date] || [];
       const vacantRooms = vacantRoomsForDate(date, rows);
-      return { key: date, date, day, rows: dayRows, vacantRooms };
+      const occupiedQuietRooms = occupiedQuietRoomsForDate(date, rows, vacantRooms);
+      return { key: date, date, day, rows: dayRows, vacantRooms, occupiedQuietRooms };
     })
   ];
   const arrivalRows = calendarRows.filter(isPureArrivalEvent);
@@ -2001,7 +2031,8 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
               !cell.empty && cell.rows.some(isPureArrivalEvent) ? "has-arrivals" : "",
               !cell.empty && cell.rows.some(isSwapEvent) ? "has-swaps" : "",
               !cell.empty && cell.rows.some(isDepartureEvent) ? "has-departures" : "",
-              !cell.empty && cell.vacantRooms?.length ? "has-vacant" : ""
+              !cell.empty && cell.vacantRooms?.length ? "has-vacant" : "",
+              !cell.empty && cell.occupiedQuietRooms?.length ? "has-occupied-quiet" : ""
             ].filter(Boolean).join(" ")}
             disabled={cell.empty}
             key={cell.key}
@@ -2022,6 +2053,11 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                     <span className="count-vacant">{cell.vacantRooms.length}</span>
                   </div>
                 )}
+                {cell.occupiedQuietRooms?.length > 0 && (
+                  <div className="calendar-event-counts occupied-counts">
+                    <span className="count-occupied">{cell.occupiedQuietRooms.length}</span>
+                  </div>
+                )}
                 {cell.rows.filter((row) => !isDepartureEvent(row)).slice(0, 3).map((row, index) => (
                   <small className={reportEventClass(row)} key={`${reportEventKey(row)}-${index}`}>
                     {reportEventLabel(row)} · {row.room || "חדר"}
@@ -2030,6 +2066,9 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                 {cell.rows.filter((row) => !isDepartureEvent(row)).length > 3 && <small>+{cell.rows.filter((row) => !isDepartureEvent(row)).length - 3} נוספים</small>}
                 {cell.vacantRooms?.length > 0 && (
                   <small className="event-vacant">ריקים · {cell.vacantRooms.slice(0, 2).join(" · ")}</small>
+                )}
+                {cell.occupiedQuietRooms?.length > 0 && (
+                  <small className="event-occupied">מאוכלסים · {cell.occupiedQuietRooms.slice(0, 2).join(" · ")}</small>
                 )}
               </>
             )}
@@ -2050,12 +2089,18 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                 סגור
               </button>
             </div>
-            {selectedDayDisplayRows.length || selectedDay.vacantRooms?.length ? (
+            {selectedDayDisplayRows.length || selectedDay.vacantRooms?.length || selectedDay.occupiedQuietRooms?.length ? (
               <div className="calendar-modal-list">
                 {selectedDay.vacantRooms?.length > 0 && (
                   <article className="calendar-modal-item event-vacant">
                     <strong>ריק · {selectedDay.vacantRooms.join(" · ")}</strong>
                     <p>לא מאוכלס ביום הזה לפי טווחי ההזמנות</p>
+                  </article>
+                )}
+                {selectedDay.occupiedQuietRooms?.length > 0 && (
+                  <article className="calendar-modal-item event-occupied">
+                    <strong>מאוכלס · {selectedDay.occupiedQuietRooms.join(" · ")}</strong>
+                    <p>אין פעולה ביומן, אבל החדר בתוך טווח אירוח פעיל</p>
                   </article>
                 )}
                 {selectedDayDisplayRows.map((row, index) => (
