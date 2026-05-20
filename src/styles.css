@@ -670,6 +670,11 @@ h2 {
   margin-bottom: 18px;
 }
 
+.form-title {
+  color: var(--ink-2);
+  font-size: 1.05rem;
+}
+
 .form-row {
   display: grid;
   grid-template-columns: 0.8fr 1.2fr;

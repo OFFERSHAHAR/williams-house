@@ -2435,7 +2435,11 @@ function MaintenancePanel({ rows, turnovers, saving, user, actions }) {
           );
         })}
       </ListBlock>
+      <MaintenanceList title="משימות פתוחות" rows={open} actions={actions} />
       <form className="form" onSubmit={submit}>
+        <div className="form-title">
+          <strong>יצירת משימה חדשה</strong>
+        </div>
         <label>
           כותרת
           <input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} placeholder="נזילה, מזגן, מנורה..." />
@@ -2459,7 +2463,6 @@ function MaintenancePanel({ rows, turnovers, saving, user, actions }) {
           {actions.isPending("add:maintenance") ? "שומר..." : "הוסף לאחזקה"}
         </button>
       </form>
-      <MaintenanceList title="פתוחות" rows={open} actions={actions} />
       <MaintenanceList title="בוצעו" rows={done.slice(0, 10)} actions={actions} />
     </section>
   );
