@@ -98,6 +98,7 @@ const REPORT_EVENT_LABELS = {
   arrival: "כניסה",
   swap: "החלפה",
   departure: "עזיבה",
+  vacant: "ריק",
   block: "חסום"
 };
 const SCHEDULE_NOTICE_DISMISSED_KEY = "williams_schedule_notice_dismissed";
@@ -260,6 +261,42 @@ function isDepartureEvent(row) {
 
 function isSwapEvent(row) {
   return reportEventType(row) === "swap";
+}
+
+function vacantRoomsForDate(date, rows) {
+  const rangeRows = rows.filter((row) => {
+    const room = String(row?.room || "").trim();
+    const arrivalDate = String(row?.arrivalDate || "").slice(0, 10);
+    const departureDate = String(row?.departureDate || "").slice(0, 10);
+    return room && arrivalDate && departureDate;
+  });
+
+  if (!rangeRows.length) return [];
+
+  const occupiedRooms = new Set(
+    rangeRows
+      .filter((row) => {
+        const arrivalDate = String(row.arrivalDate || "").slice(0, 10);
+        const departureDate = String(row.departureDate || "").slice(0, 10);
+        return arrivalDate <= date && date < departureDate;
+      })
+      .map((row) => String(row.room || "").trim())
+      .filter(Boolean)
+  );
+
+  const blockedRooms = new Set(
+    rangeRows
+      .filter((row) => {
+        if (!isMaintenanceReportTurnover(row) && reportEventType(row) !== "block") return false;
+        const startDate = String(row.arrivalDate || row.date || "").slice(0, 10);
+        const endDate = String(row.departureDate || row.date || "").slice(0, 10);
+        return startDate <= date && date < endDate;
+      })
+      .map((row) => String(row.room || "").trim())
+      .filter(Boolean)
+  );
+
+  return BOOKING_ROOMS.filter((room) => !occupiedRooms.has(room) && !blockedRooms.has(room));
 }
 
 function roomDateKey(row) {
@@ -827,9 +864,10 @@ export default function App() {
     if (!user) return undefined;
 
     const interval = window.setInterval(() => {
+      if (document.hidden) return;
       if (pendingWritesRef.current > 0) return;
       loadData().catch(() => {});
-    }, 5000);
+    }, 30000);
 
     return () => window.clearInterval(interval);
   }, [user]);
@@ -869,7 +907,6 @@ export default function App() {
 
     Promise.resolve()
       .then(operation)
-      .then(loadData)
       .then(() => {
         setActionNotice({ type: "success", text: messages.success });
         window.setTimeout(() => {
@@ -1813,17 +1850,27 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
     ...Array.from({ length: daysInMonth }, (_, index) => {
       const day = index + 1;
       const date = `${month}-${String(day).padStart(2, "0")}`;
-      return { key: date, date, day, rows: rowsByDate[date] || [] };
+      const dayRows = rowsByDate[date] || [];
+      const vacantRooms = vacantRoomsForDate(date, rows);
+      return { key: date, date, day, rows: dayRows, vacantRooms };
     })
   ];
   const arrivalRows = calendarRows.filter(isPureArrivalEvent);
   const swapRows = calendarRows.filter(isSwapEvent);
-  const departureRows = calendarRows.filter(isDepartureEvent);
+  const vacantRows = cells.flatMap((cell) =>
+    (cell.vacantRooms || []).map((room) => ({
+      id: `vacant-${cell.date}-${room}`,
+      eventType: "vacant",
+      room,
+      date: cell.date
+    }))
+  );
   const selectedDayRows = selectedDay?.rows || [];
+  const selectedDayDisplayRows = selectedDayRows.filter((row) => !isDepartureEvent(row));
   const summaryGroups = [
     { key: "arrivals", label: "כניסות", className: "stat-arrival", rows: arrivalRows },
     { key: "swaps", label: "החלפות", className: "stat-swap", rows: swapRows },
-    { key: "departures", label: "עזיבות", className: "stat-departure", rows: departureRows }
+    { key: "vacant", label: "ריקים", className: "stat-departure", rows: vacantRows }
   ];
 
   return (
@@ -1848,9 +1895,10 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                           <span>{reportEventLabel(row)} · {row.room || "חדר"}</span>
                           <small>
                             <DateText>{formatDisplayDate(row.date)}</DateText>
+                            {group.key === "vacant" ? " · חדר ריק" : ""}
                             {isDepartureEvent(row) ? " · עזיבה" : ""}
                             {isSwapEvent(row) && group.key === "departures" ? " · עזיבה כחלק מהחלפה" : ""}
-                            {!isDepartureEvent(row) && !(isSwapEvent(row) && group.key === "departures") ? ` · ${row.guests || 0} אורחים` : ""}
+                            {group.key !== "vacant" && !isDepartureEvent(row) && !(isSwapEvent(row) && group.key === "departures") ? ` · ${row.guests || 0} אורחים` : ""}
                           </small>
                         </p>
                       ))}
@@ -1877,7 +1925,8 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
               cell.empty ? "calendar-day empty-day" : cell.rows.length ? "calendar-day has-entries" : "calendar-day",
               !cell.empty && cell.rows.some(isPureArrivalEvent) ? "has-arrivals" : "",
               !cell.empty && cell.rows.some(isSwapEvent) ? "has-swaps" : "",
-              !cell.empty && cell.rows.some(isDepartureEvent) ? "has-departures" : ""
+              !cell.empty && cell.rows.some(isDepartureEvent) ? "has-departures" : "",
+              !cell.empty && cell.vacantRooms?.length ? "has-vacant" : ""
             ].filter(Boolean).join(" ")}
             disabled={cell.empty}
             key={cell.key}
@@ -1891,19 +1940,22 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                   <div className="calendar-event-counts">
                     {cell.rows.filter(isPureArrivalEvent).length > 0 && <span className="count-arrival">{cell.rows.filter(isPureArrivalEvent).length}</span>}
                     {cell.rows.filter(isSwapEvent).length > 0 && <span className="count-swap">{cell.rows.filter(isSwapEvent).length}</span>}
-                    {cell.rows.filter(isDepartureEvent).length > 0 && (
-                      <span className="count-departure">
-                        {cell.rows.filter(isDepartureEvent).length}
-                      </span>
-                    )}
                   </div>
                 )}
-                {cell.rows.slice(0, 3).map((row, index) => (
+                {cell.vacantRooms?.length > 0 && (
+                  <div className="calendar-event-counts vacant-counts">
+                    <span className="count-vacant">{cell.vacantRooms.length}</span>
+                  </div>
+                )}
+                {cell.rows.filter((row) => !isDepartureEvent(row)).slice(0, 3).map((row, index) => (
                   <small className={reportEventClass(row)} key={`${reportEventKey(row)}-${index}`}>
                     {reportEventLabel(row)} · {row.room || "חדר"}
                   </small>
                 ))}
-                {cell.rows.length > 3 && <small>+{cell.rows.length - 3} נוספים</small>}
+                {cell.rows.filter((row) => !isDepartureEvent(row)).length > 3 && <small>+{cell.rows.filter((row) => !isDepartureEvent(row)).length - 3} נוספים</small>}
+                {cell.vacantRooms?.length > 0 && (
+                  <small className="event-vacant">ריקים · {cell.vacantRooms.slice(0, 2).join(" · ")}</small>
+                )}
               </>
             )}
           </button>
@@ -1923,9 +1975,15 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                 סגור
               </button>
             </div>
-            {selectedDayRows.length ? (
+            {selectedDayDisplayRows.length || selectedDay.vacantRooms?.length ? (
               <div className="calendar-modal-list">
-                {selectedDayRows.map((row, index) => (
+                {selectedDay.vacantRooms?.length > 0 && (
+                  <article className="calendar-modal-item event-vacant">
+                    <strong>ריק · {selectedDay.vacantRooms.join(" · ")}</strong>
+                    <p>לא מאוכלס ביום הזה לפי טווחי ההזמנות</p>
+                  </article>
+                )}
+                {selectedDayDisplayRows.map((row, index) => (
                   <article className={`calendar-modal-item ${reportEventClass(row)}`} key={`${reportEventKey(row)}-${index}`}>
                     {editingRow?.id === row.id ? (
                       <TurnoverEditForm row={row} rows={rows} actions={actions} onCancel={() => setEditingRow(null)} onSaved={() => setEditingRow(null)} />

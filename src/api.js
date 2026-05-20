@@ -1,6 +1,7 @@
 import { API_URL } from "./config";
 
 const CACHE_KEY = "williams_house_data_cache";
+let cacheWriteTimer = null;
 
 export async function readAll() {
   const url = new URL(API_URL);
@@ -26,17 +27,23 @@ export function readCachedData() {
 }
 
 export function saveCachedData(data) {
-  try {
-    localStorage.setItem(
-      CACHE_KEY,
-      JSON.stringify({
-        savedAt: new Date().toISOString(),
-        data
-      })
-    );
-  } catch {
-    // Cache is a speed improvement only. Failure should not block the app.
+  if (cacheWriteTimer) {
+    window.clearTimeout(cacheWriteTimer);
   }
+
+  cacheWriteTimer = window.setTimeout(() => {
+    try {
+      localStorage.setItem(
+        CACHE_KEY,
+        JSON.stringify({
+          savedAt: new Date().toISOString(),
+          data
+        })
+      );
+    } catch {
+      // Cache is a speed improvement only. Failure should not block the app.
+    }
+  }, 250);
 }
 
 export async function addRecord(table, record) {
