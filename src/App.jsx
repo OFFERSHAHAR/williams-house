@@ -282,7 +282,16 @@ function vacantRoomsForDate(date, rows) {
     return room && arrivalDate && departureDate;
   });
 
-  if (!rangeRows.length) return [];
+  const sameDayBusyRooms = new Set(
+    rows
+      .filter((row) => String(row?.date || row?.arrivalDate || "").slice(0, 10) === date)
+      .filter((row) => {
+        const type = reportEventType(row);
+        return type === "arrival" || type === "swap" || type === "block" || isMaintenanceReportTurnover(row);
+      })
+      .map((row) => String(row.room || "").trim())
+      .filter(Boolean)
+  );
 
   const occupiedRooms = new Set(
     rangeRows
@@ -307,7 +316,40 @@ function vacantRoomsForDate(date, rows) {
       .filter(Boolean)
   );
 
-  return BOOKING_ROOMS.filter((room) => !occupiedRooms.has(room) && !blockedRooms.has(room));
+  const roomsWithCheckout = new Set(
+    [
+      ...rows
+        .filter((row) => isDepartureEvent(row) && String(row.date || "").slice(0, 10) === date),
+      ...rangeRows.filter((row) => String(row.departureDate || "").slice(0, 10) === date)
+    ]
+      .map((row) => String(row.room || "").trim())
+      .filter(Boolean)
+  );
+
+  const roomsBetweenBookings = new Set(
+    BOOKING_ROOMS.filter((room) => {
+      if (occupiedRooms.has(room) || blockedRooms.has(room) || sameDayBusyRooms.has(room)) return false;
+      const roomRows = rangeRows
+        .filter((row) => String(row.room || "").trim() === room)
+        .sort((a, b) => String(a.arrivalDate || "").localeCompare(String(b.arrivalDate || "")));
+      const lastDeparture = roomRows
+        .map((row) => String(row.departureDate || "").slice(0, 10))
+        .filter((departureDate) => departureDate && departureDate <= date)
+        .sort()
+        .pop();
+      if (!lastDeparture) return false;
+      const nextArrival = roomRows
+        .map((row) => String(row.arrivalDate || "").slice(0, 10))
+        .filter((arrivalDate) => arrivalDate && arrivalDate > lastDeparture)
+        .sort()
+        .find((arrivalDate) => arrivalDate > date);
+      return date >= lastDeparture && (!nextArrival || date < nextArrival);
+    })
+  );
+
+  return BOOKING_ROOMS.filter((room) => (
+    roomsWithCheckout.has(room) || roomsBetweenBookings.has(room)
+  ) && !sameDayBusyRooms.has(room) && !occupiedRooms.has(room) && !blockedRooms.has(room));
 }
 
 function roomDateKey(row) {
