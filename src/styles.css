@@ -1858,15 +1858,20 @@ button:disabled {
 }
 
 .maintenance-notice-backdrop {
-  align-items: center;
-  padding: max(16px, env(safe-area-inset-top)) 16px max(18px, env(safe-area-inset-bottom));
+  align-items: flex-start;
+  justify-items: end;
+  padding: max(18px, env(safe-area-inset-top)) 16px max(18px, env(safe-area-inset-bottom));
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: none;
 }
 
 .maintenance-notice-modal {
-  width: min(92vw, 560px);
+  width: min(92vw, 520px);
   min-height: auto;
   gap: 18px;
   padding: 26px;
+  pointer-events: auto;
 }
 
 .maintenance-notice-card {

@@ -376,8 +376,30 @@ function vacantRoomsForDate(date, rows) {
     })
   );
 
+  const roomsWaitingAfterCompletedStay = new Set(
+    BOOKING_ROOMS.filter((room) => {
+      if (occupiedRooms.has(room) || blockedRooms.has(room) || sameDayBusyRooms.has(room)) return false;
+      const completedDates = rows
+        .filter((row) => String(row.room || "").trim() === room)
+        .filter((row) => isDone(row))
+        .map((row) => String(row.date || row.departureDate || "").slice(0, 10))
+        .filter((rowDate) => rowDate && rowDate < date)
+        .sort();
+      const lastCompletedDate = completedDates[completedDates.length - 1];
+      if (!lastCompletedDate) return false;
+      const nextArrival = rows
+        .filter((row) => String(row.room || "").trim() === room)
+        .filter(isArrivalEvent)
+        .map((row) => String(row.date || row.arrivalDate || "").slice(0, 10))
+        .filter((arrivalDate) => arrivalDate && arrivalDate > lastCompletedDate)
+        .sort()
+        .find((arrivalDate) => arrivalDate > date);
+      return Boolean(nextArrival);
+    })
+  );
+
   return BOOKING_ROOMS.filter((room) => (
-    roomsWithCheckout.has(room) || roomsBetweenBookings.has(room)
+    roomsWithCheckout.has(room) || roomsBetweenBookings.has(room) || roomsWaitingAfterCompletedStay.has(room)
   ) && !sameDayBusyRooms.has(room) && !occupiedRooms.has(room) && !blockedRooms.has(room));
 }
 
@@ -2959,6 +2981,7 @@ function MessagesPanel({ rows = [], users = [], user, actions }) {
 
 function MaintenanceNoticePopup({ notice, user, actions, onExit }) {
   const confirmRead = () => {
+    onExit();
     actions.update(TABLES.notifications, { ...notice, read: true });
     if (notice.room !== "אישור אחזקה") {
       actions.add(TABLES.notifications, {
