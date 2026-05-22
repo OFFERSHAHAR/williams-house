@@ -311,6 +311,17 @@ function reportRangeRows(rows) {
 function vacantRoomsForDate(date, rows) {
   const rangeRows = reportRangeRows(rows);
 
+  const sameDayActivityRooms = new Set(
+    rows
+      .filter((row) => String(row?.date || row?.arrivalDate || "").slice(0, 10) === date)
+      .filter((row) => {
+        const type = reportEventType(row);
+        return type === "arrival" || type === "swap" || type === "departure" || type === "block" || isMaintenanceReportTurnover(row);
+      })
+      .map((row) => String(row.room || "").trim())
+      .filter(Boolean)
+  );
+
   const sameDayBusyRooms = new Set(
     rows
       .filter((row) => String(row?.date || row?.arrivalDate || "").slice(0, 10) === date)
@@ -400,7 +411,7 @@ function vacantRoomsForDate(date, rows) {
 
   return BOOKING_ROOMS.filter((room) => (
     roomsWithCheckout.has(room) || roomsBetweenBookings.has(room) || roomsWaitingAfterCompletedStay.has(room)
-  ) && !sameDayBusyRooms.has(room) && !occupiedRooms.has(room) && !blockedRooms.has(room));
+  ) && !sameDayActivityRooms.has(room) && !sameDayBusyRooms.has(room) && !occupiedRooms.has(room) && !blockedRooms.has(room));
 }
 
 function occupiedQuietRoomsForDate(date, rows, vacantRooms = []) {
