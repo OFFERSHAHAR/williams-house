@@ -3818,6 +3818,20 @@ button:disabled {
   -webkit-overflow-scrolling: touch;
 }
 
+.role-maint.app-shell {
+  animation-fill-mode: none;
+  transform: none;
+}
+
+.role-maint .panel:has(.modal-backdrop),
+.role-maint .panel:has(.message-backdrop),
+.role-maint .panel:has(.maintenance-notice-backdrop) {
+  animation-fill-mode: none;
+  backdrop-filter: none;
+  overflow: visible;
+  transform: none;
+}
+
 .role-maint .calendar-modal-list {
   max-height: calc(100dvh - 210px);
   overflow-y: auto;
