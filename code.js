@@ -29,6 +29,7 @@ const SHEETS = {
   pool_equipment: ['id','name','lastReplaced','notes'],
   report_sync:    ['id','syncedAt','arrivals','departures','sameDay','newRows','changedRows','unchangedRows','removedRows','writtenRows','skippedRows','manualOverrides','totalRows','status','message','reportMonth'],
   messages:       ['id','threadId','from','fromName','to','toName','message','read','createdAt','expiresAt'],
+  orderly:        ['id','type','name','location','filledAt','expiresAt','batteryChangedAt','scheduleCreatedAt','lastCheckedAt','status','createdByName','createdAt','confirmedByName','confirmedAt','notes'],
 };
 
 const DEFAULT_USERS = [
@@ -126,7 +127,7 @@ function setup() {
 function clearAllData() {
   const ss = getSS();
 
-  ['maintenance','turnovers','notifications','shopping','hours','pool_logs','report_sync','messages'].forEach(name => {
+  ['maintenance','turnovers','notifications','shopping','hours','pool_logs','report_sync','messages','orderly'].forEach(name => {
     const sheet = ss.getSheetByName(name);
     if (!sheet) return;
 
@@ -248,7 +249,7 @@ function readSheet(name) {
       ) {
         v = (v === '' || v === null) ? null : Number(v);
       } else if (
-        (h === 'date' || h === 'dueDate' || h === 'lastReplaced') &&
+        (h === 'date' || h === 'dueDate' || h === 'lastReplaced' || h === 'filledAt' || h === 'expiresAt' || h === 'batteryChangedAt' || h === 'scheduleCreatedAt' || h === 'lastCheckedAt') &&
         v instanceof Date
       ) {
         const yyyy = v.getFullYear();

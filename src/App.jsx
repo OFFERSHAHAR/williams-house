@@ -13,7 +13,8 @@ const emptyData = {
   pool_logs: [],
   pool_equipment: [],
   report_sync: [],
-  messages: []
+  messages: [],
+  orderly: []
 };
 
 const roleLabels = {
@@ -24,9 +25,9 @@ const roleLabels = {
 };
 
 const tabSets = {
-  admin: ["dashboard", "turnovers", "messages", "maintenance", "shopping", "hours", "notifications", "pool"],
+  admin: ["dashboard", "turnovers", "messages", "maintenance", "orderly", "shopping", "hours", "notifications", "pool"],
   bookings: ["turnovers", "messages", "notifications"],
-  maint: ["maintenance", "maintenanceCalendar", "messages", "hours", "pool", "shopping", "notifications"],
+  maint: ["maintenanceCalendar", "maintenance", "messages", "pool", "shopping", "notifications", "orderly", "hours"],
   house: ["turnovers", "messages", "shopping", "hours", "notifications"]
 };
 
@@ -35,6 +36,7 @@ const tabLabels = {
   turnovers: "חדרים",
   maintenanceCalendar: "יומן",
   maintenance: "אחזקה",
+  orderly: "עושים סדר",
   shopping: "קניות",
   messages: "הודעות",
   hours: "שעות",
@@ -56,6 +58,7 @@ const addMonths = (key, months) => {
   return date.toISOString().slice(0, 7);
 };
 const formatMonthName = (key) => new Date(`${monthStart(key)}T12:00:00`).toLocaleDateString("he-IL", { month: "long", year: "numeric" });
+const formatWeekdayName = (date) => new Date(`${String(date || "").slice(0, 10)}T12:00:00`).toLocaleDateString("he-IL", { weekday: "long" });
 const nowIso = () => new Date().toISOString();
 const newId = () => `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 const hapticTap = (duration = 8) => {
@@ -1255,7 +1258,7 @@ export default function App() {
   };
 
   return (
-    <main className="screen app-shell" onClickCapture={(event) => {
+    <main className={`screen app-shell role-${user.role || "guest"}`} onClickCapture={(event) => {
       if (event.target.closest("button")) hapticTap(7);
     }}>
       <header className="header">
@@ -1309,6 +1312,7 @@ export default function App() {
         </section>
       )}
       {tab === "maintenance" && <MaintenancePanel rows={data.maintenance} turnovers={data.turnovers} saving={saving} user={user} actions={actions} />}
+      {tab === "orderly" && <OrderlyPanel rows={data.orderly} user={user} actions={actions} />}
       {tab === "shopping" && <ShoppingPanel rows={data.shopping} saving={saving} user={user} users={data.users} actions={actions} />}
       {tab === "messages" && <MessagesPanel rows={data.messages} users={data.users} user={user} actions={actions} />}
       {tab === "hours" && <HoursPanel rows={data.hours} saving={saving} user={user} users={data.users} actions={actions} />}
@@ -2099,6 +2103,7 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
             {!cell.empty && (
               <>
                 <span className="calendar-date">{cell.day}</span>
+                <span className="calendar-weekday-name">{formatWeekdayName(cell.date)}</span>
                 {cell.rows.length > 0 && (
                   <div className="calendar-event-counts">
                     {cell.rows.filter(isPureArrivalEvent).length > 0 && <span className="count-arrival">{cell.rows.filter(isPureArrivalEvent).length}</span>}
@@ -2141,6 +2146,7 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                 <h3 id="calendar-modal-title">
                   {selectedDay.day} {formatMonthName(month)}
                 </h3>
+                <p className="calendar-modal-date-weekday">{formatWeekdayName(selectedDay.date)}</p>
               </div>
               <button className="ghost" type="button" onClick={() => setSelectedDay(null)}>
                 סגור
@@ -2588,7 +2594,7 @@ function MaintenancePanel({ rows, turnovers, saving, user, actions }) {
   };
 
   return (
-    <section className="panel">
+    <section className="panel maintenance-command-panel">
       <SectionHead title="אחזקה" badge={`${open.length} פתוחות`} />
       <ListBlock title="כניסות היום - גינות" empty="אין כניסות שממתינות לגינה היום">
         {todayGardenRows.map((row) => {
@@ -3178,6 +3184,222 @@ function NotificationsPanel({ rows, turnovers, user, actions }) {
       )}
     </section>
   );
+}
+
+function OrderlyPanel({ rows, user, actions }) {
+  const [extinguisherForm, setExtinguisherForm] = useState({ location: "", filledAt: "", expiresAt: "", notes: "" });
+  const [irrigationForm, setIrrigationForm] = useState({ location: "", batteryChangedAt: "", scheduleCreatedAt: "", notes: "" });
+  const activeRows = rows.filter((row) => row.status !== "archived");
+  const extinguishers = activeRows.filter((row) => row.type === "extinguisher");
+  const irrigationControllers = activeRows.filter((row) => row.type === "irrigation");
+  const extinguisherAlerts = extinguishers
+    .map((row) => ({ row, days: daysUntil(row.expiresAt) }))
+    .filter((item) => item.days !== null && item.days <= 30)
+    .sort((a, b) => a.days - b.days);
+  const irrigationAlerts = irrigationControllers
+    .map((row) => ({ row, days: daysSince(row.lastCheckedAt || row.scheduleCreatedAt || row.batteryChangedAt || row.createdAt) }))
+    .filter((item) => item.days === null || item.days >= 7)
+    .sort((a, b) => (b.days || 999) - (a.days || 999));
+
+  const addExtinguisher = async (event) => {
+    event.preventDefault();
+    if (!extinguisherForm.location.trim() || !extinguisherForm.expiresAt) return;
+
+    await actions.add(TABLES.orderly, {
+      id: newId(),
+      type: "extinguisher",
+      name: "מטף כיבוי",
+      location: extinguisherForm.location.trim(),
+      filledAt: extinguisherForm.filledAt,
+      expiresAt: extinguisherForm.expiresAt,
+      batteryChangedAt: "",
+      scheduleCreatedAt: "",
+      lastCheckedAt: "",
+      status: "active",
+      createdByName: user.display || user.username,
+      createdAt: nowIso(),
+      confirmedByName: "",
+      confirmedAt: "",
+      notes: extinguisherForm.notes.trim()
+    });
+    setExtinguisherForm({ location: "", filledAt: "", expiresAt: "", notes: "" });
+  };
+
+  const addIrrigation = async (event) => {
+    event.preventDefault();
+    if (!irrigationForm.location.trim()) return;
+
+    await actions.add(TABLES.orderly, {
+      id: newId(),
+      type: "irrigation",
+      name: "מחשב השקיה",
+      location: irrigationForm.location.trim(),
+      filledAt: "",
+      expiresAt: "",
+      batteryChangedAt: irrigationForm.batteryChangedAt,
+      scheduleCreatedAt: irrigationForm.scheduleCreatedAt,
+      lastCheckedAt: "",
+      status: "active",
+      createdByName: user.display || user.username,
+      createdAt: nowIso(),
+      confirmedByName: "",
+      confirmedAt: "",
+      notes: irrigationForm.notes.trim()
+    });
+    setIrrigationForm({ location: "", batteryChangedAt: "", scheduleCreatedAt: "", notes: "" });
+  };
+
+  const confirmIrrigation = (row) => actions.update(TABLES.orderly, {
+    ...row,
+    lastCheckedAt: today(),
+    confirmedByName: user.display || user.username,
+    confirmedAt: nowIso()
+  });
+
+  return (
+    <section className="panel orderly-panel">
+      <SectionHead title="עושים סדר" badge={`${extinguisherAlerts.length + irrigationAlerts.length} התראות`} />
+
+      {(extinguisherAlerts.length > 0 || irrigationAlerts.length > 0) && (
+        <div className="orderly-alerts">
+          {extinguisherAlerts.map(({ row, days }) => (
+            <article className="orderly-alert danger-soft" key={`ext-alert-${row.id}`}>
+              <strong>{days < 0 ? "מטף פג תוקף" : "מטף לפני פקיעת תוקף"}</strong>
+              <p>{row.location} · {days < 0 ? `עברו ${Math.abs(days)} ימים` : `עוד ${days} ימים`} · תפוגה: <DateText>{formatDisplayDate(row.expiresAt)}</DateText></p>
+            </article>
+          ))}
+          {irrigationAlerts.map(({ row, days }) => (
+            <article className="orderly-alert purple-soft" key={`irr-alert-${row.id}`}>
+              <div>
+                <strong>בדיקת מחשב השקיה</strong>
+                <p>{row.location} · {days === null ? "לא בוצעה בדיקה" : `עברו ${days} ימים מהבדיקה האחרונה`}</p>
+              </div>
+              <button type="button" disabled={actions.isPending(`update:${TABLES.orderly}:${row.id}`)} onClick={() => confirmIrrigation(row)}>
+                {actions.isPending(`update:${TABLES.orderly}:${row.id}`) ? "מאשר..." : "עופר אישר בדיקה"}
+              </button>
+            </article>
+          ))}
+        </div>
+      )}
+
+      <div className="orderly-forms">
+        <form className="form" onSubmit={addExtinguisher}>
+          <div className="form-title"><strong>מטפי כיבוי</strong></div>
+          <label>
+            מיקום
+            <input value={extinguisherForm.location} onChange={(event) => setExtinguisherForm({ ...extinguisherForm, location: event.target.value })} placeholder="לדוגמה: מחסן כלים" />
+          </label>
+          <div className="form-row">
+            <label>
+              תאריך מילוי
+              <input type="date" value={extinguisherForm.filledAt} onChange={(event) => setExtinguisherForm({ ...extinguisherForm, filledAt: event.target.value })} />
+            </label>
+            <label>
+              תאריך תפוגה
+              <input type="date" value={extinguisherForm.expiresAt} onChange={(event) => setExtinguisherForm({ ...extinguisherForm, expiresAt: event.target.value })} />
+            </label>
+          </div>
+          <label>
+            הערה
+            <input value={extinguisherForm.notes} onChange={(event) => setExtinguisherForm({ ...extinguisherForm, notes: event.target.value })} placeholder="אופציונלי" />
+          </label>
+          <button className="primary" disabled={actions.isPending(`add:${TABLES.orderly}`)} type="submit">
+            הוסף מטף
+          </button>
+        </form>
+
+        <form className="form" onSubmit={addIrrigation}>
+          <div className="form-title"><strong>מחשבי השקיה</strong></div>
+          <label>
+            מיקום
+            <input value={irrigationForm.location} onChange={(event) => setIrrigationForm({ ...irrigationForm, location: event.target.value })} placeholder="לדוגמה: יורט" />
+          </label>
+          <div className="form-row">
+            <label>
+              החלפת סוללה
+              <input type="date" value={irrigationForm.batteryChangedAt} onChange={(event) => setIrrigationForm({ ...irrigationForm, batteryChangedAt: event.target.value })} />
+            </label>
+            <label>
+              יצירת סידור השקיה
+              <input type="date" value={irrigationForm.scheduleCreatedAt} onChange={(event) => setIrrigationForm({ ...irrigationForm, scheduleCreatedAt: event.target.value })} />
+            </label>
+          </div>
+          <label>
+            הערה
+            <input value={irrigationForm.notes} onChange={(event) => setIrrigationForm({ ...irrigationForm, notes: event.target.value })} placeholder="אופציונלי" />
+          </label>
+          <button className="primary" disabled={actions.isPending(`add:${TABLES.orderly}`)} type="submit">
+            הוסף מחשב
+          </button>
+        </form>
+      </div>
+
+      <ListBlock title="מטפים במעקב" empty="אין מטפים במעקב">
+        {extinguishers.map((row) => {
+          const days = daysUntil(row.expiresAt);
+          return (
+            <article className={`list-item ${days !== null && days <= 30 ? "critical" : ""}`} key={row.id}>
+              <div>
+                <strong>{row.location}</strong>
+                <p>
+                  תפוגה: <DateText>{formatDisplayDate(row.expiresAt)}</DateText>
+                  {row.filledAt ? <> · מילוי: <DateText>{formatDisplayDate(row.filledAt)}</DateText></> : ""}
+                  {days !== null ? ` · ${days < 0 ? `פג לפני ${Math.abs(days)} ימים` : `עוד ${days} ימים`}` : ""}
+                  {row.notes ? ` · ${row.notes}` : ""}
+                </p>
+              </div>
+              <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.orderly}:${row.id}`)} onClick={() => actions.remove(TABLES.orderly, row.id)}>
+                מחק
+              </button>
+            </article>
+          );
+        })}
+      </ListBlock>
+
+      <ListBlock title="מחשבי השקיה" empty="אין מחשבי השקיה במעקב">
+        {irrigationControllers.map((row) => {
+          const days = daysSince(row.lastCheckedAt || row.scheduleCreatedAt || row.batteryChangedAt || row.createdAt);
+          return (
+            <article className={`list-item ${days === null || days >= 7 ? "urgent" : ""}`} key={row.id}>
+              <div>
+                <strong>{row.location}</strong>
+                <p>
+                  סוללה: <DateText>{formatDisplayDate(row.batteryChangedAt)}</DateText>
+                  {row.scheduleCreatedAt ? <> · סידור: <DateText>{formatDisplayDate(row.scheduleCreatedAt)}</DateText></> : ""}
+                  {row.lastCheckedAt ? <> · בדיקה: <DateText>{formatDisplayDate(row.lastCheckedAt)}</DateText></> : " · לא בוצעה בדיקה"}
+                  {row.notes ? ` · ${row.notes}` : ""}
+                </p>
+              </div>
+              <div className="actions">
+                <button type="button" disabled={actions.isPending(`update:${TABLES.orderly}:${row.id}`)} onClick={() => confirmIrrigation(row)}>
+                  בדיקה אושרה
+                </button>
+                <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.orderly}:${row.id}`)} onClick={() => actions.remove(TABLES.orderly, row.id)}>
+                  מחק
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </ListBlock>
+    </section>
+  );
+}
+
+function daysUntil(value) {
+  if (!value) return null;
+  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  const now = new Date(`${today()}T12:00:00`);
+  return Math.ceil((date.getTime() - now.getTime()) / 86400000);
+}
+
+function daysSince(value) {
+  if (!value) return null;
+  const date = new Date(`${String(value).slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  const now = new Date(`${today()}T12:00:00`);
+  return Math.max(0, Math.floor((now.getTime() - date.getTime()) / 86400000));
 }
 
 function PoolPanel({ logs, equipment, saving, user, actions }) {

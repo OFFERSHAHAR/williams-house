@@ -12,5 +12,6 @@ export const TABLES = {
   poolLogs: "pool_logs",
   poolEquipment: "pool_equipment",
   reportSync: "report_sync",
-  messages: "messages"
+  messages: "messages",
+  orderly: "orderly"
 };

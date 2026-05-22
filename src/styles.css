@@ -673,6 +673,120 @@ button:active:not(:disabled) {
   border: 1px solid rgba(255, 255, 255, 0.78);
 }
 
+.role-maint {
+  background:
+    radial-gradient(circle at 88% 7%, rgba(38, 137, 255, 0.28), transparent 21rem),
+    radial-gradient(circle at 12% 18%, rgba(118, 103, 255, 0.16), transparent 19rem),
+    linear-gradient(145deg, #101827 0%, #172335 46%, #20364c 100%);
+  color: #eef6ff;
+}
+
+.role-maint .header {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.role-maint .header h1,
+.role-maint .section-head h2,
+.role-maint .list-item strong,
+.role-maint .form-title strong {
+  color: #f8fbff;
+}
+
+.role-maint .eyebrow,
+.role-maint .muted,
+.role-maint .section-head p,
+.role-maint label,
+.role-maint .list-item p {
+  color: rgba(226, 238, 252, 0.7);
+}
+
+.role-maint .tabs {
+  background: rgba(7, 14, 26, 0.46);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.role-maint .tabs button {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.13);
+  color: rgba(232, 242, 255, 0.74);
+}
+
+.role-maint .tabs button.active {
+  background: linear-gradient(135deg, #2689ff, #7667ff);
+  color: white;
+  box-shadow: 0 16px 34px rgba(38, 137, 255, 0.28);
+}
+
+.role-maint .stat,
+.role-maint .panel,
+.role-maint .list-item,
+.role-maint .pool-hero {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.05)),
+    rgba(13, 23, 39, 0.72);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 24px 58px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.role-maint .stat strong {
+  color: #f8fbff;
+}
+
+.role-maint .stat span {
+  color: rgba(232, 242, 255, 0.66);
+}
+
+.role-maint .stat-icon {
+  background: rgba(255, 255, 255, 0.11);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.role-maint .pill.subtle {
+  background: rgba(38, 137, 255, 0.18);
+  color: #8ec7ff;
+}
+
+.role-maint .ghost,
+.role-maint input,
+.role-maint select,
+.role-maint textarea {
+  background: rgba(7, 14, 26, 0.5);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #f8fbff;
+}
+
+.role-maint input::placeholder,
+.role-maint textarea::placeholder {
+  color: rgba(226, 238, 252, 0.54);
+}
+
+.role-maint .maintenance-command-panel {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(38, 137, 255, 0.18), transparent 18rem),
+    linear-gradient(145deg, rgba(16, 29, 49, 0.9), rgba(10, 18, 31, 0.74));
+}
+
+.role-maint .maintenance-command-panel .list-block {
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.role-maint .maintenance-command-panel .list-item {
+  position: relative;
+  overflow: hidden;
+}
+
+.role-maint .maintenance-command-panel .list-item::before {
+  content: "";
+  position: absolute;
+  inset-block: 18px;
+  inset-inline-start: 0;
+  width: 4px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #2689ff, #7667ff);
+  opacity: 0.72;
+}
+
 .form {
   display: grid;
   gap: 12px;
@@ -1067,6 +1181,96 @@ button:disabled {
   justify-content: flex-end;
 }
 
+.role-maint button:not(.stat-button):not(.primary):not(.danger):not(.danger-soft):not(.success-soft):not(.purple-soft) {
+  background: rgba(231, 241, 255, 0.1);
+  color: rgba(245, 249, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.role-maint button:hover:not(:disabled) {
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.role-maint .primary {
+  color: #fff;
+  background: linear-gradient(135deg, #2f91ff, #7d6cff);
+  box-shadow: 0 18px 38px rgba(47, 145, 255, 0.28);
+}
+
+.role-maint .danger,
+.role-maint .danger-soft {
+  color: #ffd1d1;
+  background: rgba(217, 45, 32, 0.18);
+  border: 1px solid rgba(255, 120, 120, 0.2);
+}
+
+.role-maint .success-soft {
+  color: #b7f6d0;
+  background: rgba(36, 161, 72, 0.18);
+  border: 1px solid rgba(110, 231, 183, 0.16);
+}
+
+.role-maint .purple-soft {
+  color: #d8d1ff;
+  background: rgba(124, 58, 237, 0.18);
+  border: 1px solid rgba(196, 181, 253, 0.16);
+}
+
+.role-maint .list-block {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+.role-maint .list-block h3 {
+  color: rgba(226, 238, 252, 0.72);
+  letter-spacing: 0;
+}
+
+.role-maint .empty {
+  color: rgba(226, 238, 252, 0.7);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.role-maint .list-item,
+.role-maint .mini-row {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
+    rgba(13, 23, 39, 0.78);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f8fbff;
+}
+
+.role-maint .list-item.urgent,
+.role-maint .list-item.critical,
+.role-maint .list-item.turnover-swap {
+  background:
+    linear-gradient(145deg, rgba(255, 185, 90, 0.13), rgba(255, 255, 255, 0.045)),
+    rgba(23, 28, 39, 0.82);
+}
+
+.role-maint .list-item.critical {
+  background:
+    linear-gradient(145deg, rgba(255, 89, 89, 0.14), rgba(255, 255, 255, 0.045)),
+    rgba(28, 19, 29, 0.82);
+}
+
+.role-maint .list-item strong,
+.role-maint .mini-row strong,
+.role-maint .list-item.turnover-swap strong {
+  color: #f8fbff;
+}
+
+.role-maint .list-item p,
+.role-maint .mini-row span,
+.role-maint .list-item .turnover-note {
+  color: rgba(226, 238, 252, 0.76);
+}
+
+.role-maint .list-item .turnover-note {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
 .turnover-edit-form {
   width: 100%;
   margin-bottom: 0;
@@ -1181,6 +1385,217 @@ button:disabled {
 .panel .mini-row strong,
 .panel .calendar-modal-item strong {
   color: var(--ink);
+}
+
+.role-maint .panel .section-head h2,
+.role-maint .panel .list-item strong,
+.role-maint .panel .mini-row strong,
+.role-maint .panel .calendar-modal-item strong {
+  color: #fff;
+}
+
+.role-maint .panel .summary-line,
+.role-maint .panel .calendar-day,
+.role-maint .panel .calendar-modal-item,
+.role-maint .panel .calendar-modal-empty {
+  color: rgba(245, 249, 255, 0.9);
+}
+
+.role-maint .panel .list-item p,
+.role-maint .panel .mini-row span,
+.role-maint .panel .calendar-modal-item p,
+.role-maint .panel .calendar-modal-item small {
+  color: rgba(226, 238, 252, 0.76);
+}
+
+.role-maint .dashboard-grid,
+.role-maint .stat-grid {
+  gap: 18px;
+}
+
+.role-maint .stat-button {
+  min-height: 152px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.055)),
+    radial-gradient(circle at 88% 12%, rgba(255, 255, 255, 0.16), transparent 5rem),
+    rgba(13, 24, 42, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 28px;
+  box-shadow: 0 26px 62px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.role-maint .stat-button::before {
+  opacity: 0.18;
+}
+
+.role-maint .stat-button strong {
+  color: #fff;
+  text-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
+}
+
+.role-maint .stat-button span:not(.stat-icon),
+.role-maint .stat-button small {
+  color: rgba(230, 241, 255, 0.72);
+}
+
+.role-maint .booking-board,
+.role-maint .calendar-panel {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.045)),
+    rgba(11, 21, 36, 0.78);
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.role-maint .calendar-head {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08)),
+    rgba(83, 102, 126, 0.38);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 18px 42px rgba(0, 0, 0, 0.2);
+}
+
+.role-maint .calendar-head h3 {
+  color: #fff;
+  text-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+.role-maint .calendar-month-stats {
+  filter: saturate(1.08);
+}
+
+.calendar-weekday-name,
+.calendar-modal-date-weekday {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  opacity: 0.72;
+}
+
+.calendar-modal-date-weekday {
+  margin-top: 4px;
+}
+
+.role-maint .calendar-weekdays span,
+.role-maint .calendar-date,
+.role-maint .calendar-weekday-name {
+  color: rgba(234, 244, 255, 0.78);
+}
+
+.role-maint .calendar-date {
+  color: rgba(248, 251, 255, 0.92);
+  text-shadow: 0 5px 18px rgba(0, 0, 0, 0.2);
+}
+
+.role-maint .calendar-day {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.095), rgba(255, 255, 255, 0.035)),
+    rgba(17, 30, 49, 0.72);
+  border-color: rgba(255, 255, 255, 0.13);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 14px 32px rgba(0, 0, 0, 0.18);
+}
+
+.role-maint .calendar-day.has-arrivals {
+  background:
+    linear-gradient(145deg, rgba(37, 211, 102, 0.16), rgba(255, 255, 255, 0.04)),
+    rgba(15, 38, 38, 0.78);
+  border-color: rgba(74, 222, 128, 0.34);
+}
+
+.role-maint .calendar-day.has-swaps {
+  background:
+    linear-gradient(145deg, rgba(251, 146, 60, 0.18), rgba(255, 255, 255, 0.04)),
+    rgba(44, 31, 23, 0.82);
+  border-color: rgba(251, 146, 60, 0.38);
+}
+
+.role-maint .calendar-day.has-vacant {
+  background:
+    linear-gradient(145deg, rgba(248, 113, 113, 0.18), rgba(255, 255, 255, 0.04)),
+    rgba(48, 23, 28, 0.82);
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.role-maint .calendar-day.has-occupied-quiet {
+  background:
+    linear-gradient(145deg, rgba(96, 165, 250, 0.14), rgba(255, 255, 255, 0.035)),
+    rgba(17, 32, 54, 0.78);
+  border-color: rgba(147, 197, 253, 0.26);
+}
+
+.role-maint .calendar-day small {
+  color: rgba(226, 238, 252, 0.78);
+}
+
+.role-maint .calendar-modal {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.07)),
+    rgba(12, 22, 38, 0.92);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 34px 96px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.role-maint .calendar-modal h3,
+.role-maint .calendar-modal-date-weekday {
+  color: #fff;
+}
+
+.role-maint .calendar-modal .eyebrow {
+  color: rgba(226, 238, 252, 0.68);
+}
+
+.orderly-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.orderly-forms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.orderly-forms .form {
+  margin-bottom: 0;
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.orderly-alerts {
+  display: grid;
+  gap: 10px;
+}
+
+.orderly-alert {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 20px;
+}
+
+.orderly-alert strong {
+  display: block;
+  margin-bottom: 4px;
+  color: inherit;
+}
+
+.orderly-alert p {
+  margin: 0;
+  color: inherit;
+  opacity: 0.86;
+}
+
+.role-maint .orderly-forms .form,
+.role-maint .orderly-alert {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
+    rgba(13, 23, 39, 0.72);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 18px 42px rgba(0, 0, 0, 0.18);
 }
 
 .pool-main-action {
@@ -1822,6 +2237,92 @@ button:disabled {
   overflow: hidden;
 }
 
+.role-maint .messages-panel {
+  background:
+    radial-gradient(circle at 18% 10%, rgba(96, 165, 250, 0.16), transparent 18rem),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.04)),
+    rgba(10, 19, 34, 0.84);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.role-maint .message-compose {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.115), rgba(255, 255, 255, 0.045)),
+    rgba(12, 23, 40, 0.76);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.role-maint .message-compose-head h3,
+.role-maint .message-compose-head strong,
+.role-maint .message-compose-text span,
+.role-maint .messages-panel .section-head h2 {
+  color: #fff;
+}
+
+.role-maint .message-compose-head .muted {
+  background: rgba(96, 165, 250, 0.2);
+  color: #cfe8ff;
+}
+
+.role-maint .message-compose-head strong {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.role-maint .message-recipient-pills button {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(237, 246, 255, 0.86);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.role-maint .message-recipient-pills button.active {
+  background: linear-gradient(135deg, #2f91ff, #7d6cff);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.role-maint .message-compose-text textarea,
+.role-maint .messages-panel textarea,
+.role-maint .message-reply textarea {
+  background: rgba(225, 240, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.72);
+  color: #071425;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86), 0 14px 34px rgba(0, 0, 0, 0.12);
+}
+
+.role-maint .message-compose-text textarea::placeholder,
+.role-maint .messages-panel textarea::placeholder,
+.role-maint .message-reply textarea::placeholder {
+  color: rgba(23, 37, 57, 0.62);
+}
+
+.role-maint input:focus,
+.role-maint select:focus,
+.role-maint textarea:focus {
+  background: rgba(238, 247, 255, 0.96);
+  color: #071425;
+  border-color: rgba(96, 165, 250, 0.7);
+  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.role-maint .message-row,
+.role-maint .message-row.unread {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.095), rgba(255, 255, 255, 0.035)),
+    rgba(13, 24, 42, 0.78);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.role-maint .message-row.unread {
+  border-color: rgba(96, 165, 250, 0.38);
+}
+
+.role-maint .message-row p,
+.role-maint .message-row small {
+  color: rgba(226, 238, 252, 0.78);
+}
+
 .message-row small,
 .message-bubble small {
   display: block;
@@ -1994,6 +2495,324 @@ button:disabled {
   border-radius: 22px;
   min-height: 116px;
   background: rgba(248, 252, 255, 0.82);
+}
+
+.role-maint .modal-backdrop,
+.role-maint .message-backdrop,
+.role-maint .maintenance-notice-backdrop {
+  background:
+    radial-gradient(circle at 50% 18%, rgba(80, 150, 235, 0.2), transparent 26rem),
+    linear-gradient(180deg, rgba(2, 8, 18, 0.56), rgba(2, 8, 18, 0.78));
+  backdrop-filter: blur(20px) saturate(1.18);
+  animation: maint-backdrop-fade 180ms ease both;
+}
+
+.role-maint .message-backdrop,
+.role-maint .maintenance-notice-backdrop {
+  align-items: center;
+  justify-items: center;
+  padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+  pointer-events: auto;
+}
+
+.role-maint .calendar-modal,
+.role-maint .message-modal,
+.role-maint .maintenance-notice-modal {
+  position: relative;
+  overflow: hidden;
+  width: min(94vw, 1060px);
+  background:
+    radial-gradient(circle at 86% 0%, rgba(91, 154, 236, 0.23), transparent 18rem),
+    radial-gradient(circle at 10% 100%, rgba(148, 163, 184, 0.12), transparent 18rem),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.055)),
+    rgba(8, 17, 31, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 34px;
+  color: #f8fbff;
+  box-shadow:
+    0 34px 110px rgba(0, 0, 0, 0.48),
+    0 0 0 1px rgba(147, 197, 253, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  animation: maint-modal-rise 230ms cubic-bezier(0.2, 0.85, 0.25, 1) both;
+}
+
+.role-maint .message-modal {
+  min-height: min(78vh, 780px);
+  max-height: min(92vh, 920px);
+  display: grid;
+  grid-template-rows: auto minmax(260px, 1fr) auto;
+}
+
+.role-maint .maintenance-notice-modal {
+  width: min(92vw, 620px);
+  min-height: auto;
+}
+
+.role-maint .calendar-modal::after,
+.role-maint .message-modal::after,
+.role-maint .maintenance-notice-modal::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.62), transparent);
+  pointer-events: none;
+}
+
+.role-maint .calendar-modal-head,
+.role-maint .message-modal-head {
+  padding: 4px 4px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.role-maint .calendar-modal-head h3,
+.role-maint .message-modal-head h3,
+.role-maint .maintenance-notice-modal h3 {
+  color: #ffffff;
+  text-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+}
+
+.role-maint .calendar-modal-head .ghost,
+.role-maint .message-close {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #f8fbff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+.role-maint .calendar-modal-list,
+.role-maint .message-thread {
+  scrollbar-color: rgba(147, 197, 253, 0.55) transparent;
+}
+
+.role-maint .calendar-modal-list {
+  padding: 14px 4px 6px;
+}
+
+.role-maint .calendar-modal-item,
+.role-maint .calendar-modal-empty,
+.role-maint .maintenance-notice-card {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.055)),
+    rgba(16, 29, 49, 0.8);
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #f8fbff;
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  animation: maint-card-pop 240ms ease both;
+}
+
+.role-maint .calendar-modal-item strong,
+.role-maint .maintenance-notice-card strong {
+  color: #ffffff;
+}
+
+.role-maint .calendar-modal-item p,
+.role-maint .calendar-modal-item small,
+.role-maint .calendar-modal-empty,
+.role-maint .maintenance-notice-card small {
+  color: rgba(226, 238, 252, 0.82);
+}
+
+.role-maint .message-modal-head .muted {
+  background: rgba(147, 197, 253, 0.16);
+  color: rgba(226, 238, 252, 0.86);
+  border: 1px solid rgba(147, 197, 253, 0.2);
+}
+
+.role-maint .message-thread {
+  height: auto;
+  min-height: 260px;
+  background:
+    linear-gradient(180deg, rgba(11, 25, 44, 0.74), rgba(13, 25, 42, 0.54));
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.role-maint .message-bubble {
+  border-color: rgba(255, 255, 255, 0.16);
+  color: #f8fbff;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.18);
+}
+
+.role-maint .message-bubble.mine {
+  background:
+    linear-gradient(145deg, rgba(59, 130, 246, 0.26), rgba(99, 102, 241, 0.16)),
+    rgba(17, 34, 58, 0.88);
+}
+
+.role-maint .message-bubble.theirs {
+  background:
+    linear-gradient(145deg, rgba(245, 158, 11, 0.16), rgba(255, 255, 255, 0.055)),
+    rgba(23, 34, 52, 0.88);
+}
+
+.role-maint .message-bubble p {
+  color: rgba(248, 251, 255, 0.92);
+}
+
+.role-maint .message-bubble small {
+  color: rgba(191, 219, 254, 0.78);
+}
+
+.role-maint .message-reply {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.045)),
+    rgba(12, 24, 42, 0.74);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.role-maint .message-reply textarea {
+  background: rgba(238, 247, 255, 0.94);
+  color: #071425;
+}
+
+.role-maint .calendar-modal button:active,
+.role-maint .message-modal button:active,
+.role-maint .maintenance-notice-modal button:active {
+  transform: scale(0.985);
+}
+
+@keyframes maint-backdrop-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes maint-modal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes maint-card-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.role-maint,
+.role-maint .panel,
+.role-maint .stat,
+.role-maint .list-item,
+.role-maint .mini-row,
+.role-maint .calendar-day,
+.role-maint .calendar-modal,
+.role-maint .message-modal,
+.role-maint .maintenance-notice-modal {
+  color: #f8fbff;
+}
+
+.role-maint h1,
+.role-maint h2,
+.role-maint h3,
+.role-maint h4,
+.role-maint strong,
+.role-maint .calendar-date,
+.role-maint .calendar-modal-item strong,
+.role-maint .message-compose-head h3,
+.role-maint .message-modal-head h3,
+.role-maint .maintenance-notice-card strong {
+  color: #ffffff;
+  opacity: 1;
+  text-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+.role-maint p,
+.role-maint small,
+.role-maint label,
+.role-maint span,
+.role-maint .muted,
+.role-maint .eyebrow,
+.role-maint .section-head p,
+.role-maint .list-item p,
+.role-maint .mini-row span,
+.role-maint .calendar-day small,
+.role-maint .calendar-weekday-name,
+.role-maint .calendar-weekdays span,
+.role-maint .calendar-modal-item p,
+.role-maint .calendar-modal-item small,
+.role-maint .message-row p,
+.role-maint .message-row small,
+.role-maint .message-bubble small {
+  color: rgba(237, 246, 255, 0.86);
+  opacity: 1;
+}
+
+.role-maint .tabs button,
+.role-maint button:not(.primary):not(.danger):not(.danger-soft):not(.success-soft):not(.purple-soft) {
+  color: rgba(248, 251, 255, 0.94);
+}
+
+.role-maint .modal-backdrop,
+.role-maint .message-backdrop,
+.role-maint .maintenance-notice-backdrop {
+  position: fixed;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.role-maint .calendar-modal,
+.role-maint .message-modal,
+.role-maint .maintenance-notice-modal {
+  max-height: calc(100dvh - 36px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.role-maint .calendar-modal-list,
+.role-maint .message-thread {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.role-maint .calendar-modal-list {
+  max-height: calc(100dvh - 220px);
+}
+
+.role-maint .message-thread {
+  max-height: calc(100dvh - 360px);
+}
+
+.role-maint .message-bubble p {
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.role-maint input,
+.role-maint select,
+.role-maint textarea,
+.role-maint .message-compose-text textarea,
+.role-maint .messages-panel textarea,
+.role-maint .message-reply textarea {
+  color: #071425;
+  background: rgba(239, 247, 255, 0.96);
+}
+
+.role-maint input::placeholder,
+.role-maint textarea::placeholder {
+  color: rgba(22, 35, 55, 0.62);
 }
 
 .date-text {
@@ -2354,6 +3173,15 @@ button:disabled {
 }
 
 @media (max-width: 720px) {
+  .orderly-forms {
+    grid-template-columns: 1fr;
+  }
+
+  .orderly-alert {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .screen {
     padding-inline: 9px;
     padding-top: calc(48px + env(safe-area-inset-top));
@@ -2979,6 +3807,97 @@ button:disabled {
   }
 }
 
+
+.role-maint .calendar-modal,
+.role-maint .message-modal,
+.role-maint .maintenance-notice-modal {
+  max-height: calc(100dvh - 28px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.role-maint .calendar-modal-list {
+  max-height: calc(100dvh - 210px);
+  overflow-y: auto;
+}
+
+.role-maint .message-thread {
+  min-height: 220px;
+  max-height: calc(100dvh - 350px);
+  overflow-y: auto;
+}
+
+.role-maint .message-backdrop,
+.role-maint .modal-backdrop,
+.role-maint .maintenance-notice-backdrop {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.role-maint .message-modal p,
+.role-maint .message-modal small,
+.role-maint .message-modal span,
+.role-maint .calendar-modal p,
+.role-maint .calendar-modal small,
+.role-maint .calendar-modal span,
+.role-maint .maintenance-notice-modal p,
+.role-maint .maintenance-notice-modal small,
+.role-maint .maintenance-notice-modal span {
+  color: rgba(246, 250, 255, 0.9);
+}
+
+.role-maint .message-compose-text textarea,
+.role-maint .messages-panel textarea,
+.role-maint .message-reply textarea,
+.role-maint input,
+.role-maint select,
+.role-maint textarea {
+  color: #071425;
+  background: rgba(241, 248, 255, 0.97);
+}
+
+.role-maint .panel .calendar-modal-item p,
+.role-maint .panel .calendar-modal-item small,
+.role-maint .panel .calendar-modal-empty,
+.role-maint .panel .message-row p,
+.role-maint .panel .message-row small,
+.role-maint .panel .list-item p,
+.role-maint .panel .mini-row span {
+  color: rgba(246, 250, 255, 0.9);
+  opacity: 1;
+}
+
+@media (max-width: 560px) {
+  .role-maint .message-backdrop,
+  .role-maint .modal-backdrop,
+  .role-maint .maintenance-notice-backdrop {
+    align-items: flex-end;
+    padding: 8px 8px max(10px, env(safe-area-inset-bottom));
+  }
+
+  .role-maint .calendar-modal,
+  .role-maint .message-modal,
+  .role-maint .maintenance-notice-modal {
+    width: 100%;
+    min-height: auto;
+    max-height: calc(100dvh - 18px);
+    border-radius: 26px 26px 18px 18px;
+    overflow-y: auto;
+  }
+
+  .role-maint .calendar-modal-list {
+    max-height: calc(100dvh - 185px);
+  }
+
+  .role-maint .message-thread {
+    min-height: 190px;
+    max-height: calc(100dvh - 330px);
+  }
+}
 
 
 
