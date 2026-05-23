@@ -312,21 +312,11 @@ function reportRangeRows(rows) {
 }
 
 function vacantRoomsForDate(date, rows) {
-  const rangeRows = reportRangeRows(rows);
-
-  const sameDayActivityRooms = new Set(
-    rows
-      .filter((row) => String(row?.date || row?.arrivalDate || "").slice(0, 10) === date)
-      .filter((row) => {
-        const type = reportEventType(row);
-        return type === "arrival" || type === "swap" || type === "departure" || type === "block" || isMaintenanceReportTurnover(row);
-      })
-      .map((row) => String(row.room || "").trim())
-      .filter(Boolean)
-  );
+  const cleanRows = filterStaleLegacyArrivalRows(rows);
+  const rangeRows = reportRangeRows(cleanRows);
 
   const sameDayBusyRooms = new Set(
-    rows
+    cleanRows
       .filter((row) => String(row?.date || row?.arrivalDate || "").slice(0, 10) === date)
       .filter((row) => {
         const type = reportEventType(row);
@@ -361,7 +351,7 @@ function vacantRoomsForDate(date, rows) {
 
   const roomsWithCheckout = new Set(
     [
-      ...rows
+      ...cleanRows
         .filter((row) => isDepartureEvent(row) && String(row.date || "").slice(0, 10) === date),
       ...rangeRows.filter((row) => String(row.departureDate || "").slice(0, 10) === date)
     ]
@@ -393,7 +383,7 @@ function vacantRoomsForDate(date, rows) {
   const roomsWaitingAfterCompletedStay = new Set(
     BOOKING_ROOMS.filter((room) => {
       if (occupiedRooms.has(room) || blockedRooms.has(room) || sameDayBusyRooms.has(room)) return false;
-      const completedDates = rows
+      const completedDates = cleanRows
         .filter((row) => String(row.room || "").trim() === room)
         .filter((row) => isDone(row))
         .map((row) => String(row.date || row.departureDate || "").slice(0, 10))
@@ -401,7 +391,7 @@ function vacantRoomsForDate(date, rows) {
         .sort();
       const lastCompletedDate = completedDates[completedDates.length - 1];
       if (!lastCompletedDate) return false;
-      const nextArrival = rows
+      const nextArrival = cleanRows
         .filter((row) => String(row.room || "").trim() === room)
         .filter(isArrivalEvent)
         .map((row) => String(row.date || row.arrivalDate || "").slice(0, 10))
@@ -414,13 +404,14 @@ function vacantRoomsForDate(date, rows) {
 
   return BOOKING_ROOMS.filter((room) => (
     roomsWithCheckout.has(room) || roomsBetweenBookings.has(room) || roomsWaitingAfterCompletedStay.has(room)
-  ) && !sameDayActivityRooms.has(room) && !sameDayBusyRooms.has(room) && !occupiedRooms.has(room) && !blockedRooms.has(room));
+  ) && !sameDayBusyRooms.has(room) && !occupiedRooms.has(room) && !blockedRooms.has(room));
 }
 
 function occupiedQuietRoomsForDate(date, rows, vacantRooms = []) {
+  const cleanRows = filterStaleLegacyArrivalRows(rows);
   const vacantRoomSet = new Set(vacantRooms);
   const sameDayActiveRooms = new Set(
-    rows
+    cleanRows
       .filter((row) => String(row?.date || row?.arrivalDate || "").slice(0, 10) === date)
       .filter((row) => {
         const type = reportEventType(row);
@@ -429,7 +420,7 @@ function occupiedQuietRoomsForDate(date, rows, vacantRooms = []) {
       .map((row) => String(row.room || "").trim())
       .filter(Boolean)
   );
-  const rangeRows = reportRangeRows(rows).filter((row) => reportEventType(row) !== "block" && !isMaintenanceReportTurnover(row));
+  const rangeRows = reportRangeRows(cleanRows).filter((row) => reportEventType(row) !== "block" && !isMaintenanceReportTurnover(row));
 
   return BOOKING_ROOMS.filter((room) => {
     if (sameDayActiveRooms.has(room) || vacantRoomSet.has(room)) return false;
@@ -446,6 +437,87 @@ function roomDateKey(row) {
     String(row?.room || "").trim().toLowerCase(),
     String(row?.date || "").slice(0, 10)
   ].join("|");
+}
+
+function isConfirmedArrivalLikeEvent(row) {
+  const type = String(row?.eventType || "").trim();
+  if (type === "arrival" || type === "swap") return true;
+  return row?.isOccupied === true || row?.isOccupied === "TRUE" || row?.isOccupied === "true";
+}
+
+function isLegacyReportArrivalLike(row) {
+  const id = String(row?.id || "");
+  if (!id.startsWith(REPORT_TURNOVER_PREFIX) || isDepartureEvent(row) || isMaintenanceReportTurnover(row)) return false;
+  const hasNewReportFields = ["eventType", "bookingId", "arrivalDate", "departureDate"]
+    .some((field) => String(row?.[field] || "").trim());
+  return !hasNewReportFields && isConfirmedArrivalLikeEvent(row);
+}
+
+function filterStaleLegacyArrivalRows(rows) {
+  const departuresByRoomDate = new Map();
+
+  rows.filter(isDepartureEvent).forEach((row) => {
+    const key = roomDateKey(row);
+    if (key) departuresByRoomDate.set(key, row);
+  });
+
+  if (!departuresByRoomDate.size) return rows;
+
+  return rows.filter((row) => {
+    if (!isLegacyReportArrivalLike(row)) return true;
+
+    const departure = departuresByRoomDate.get(roomDateKey(row));
+    if (!departure) return true;
+
+    const rowCreated = Date.parse(row.createdAt || "");
+    const departureCreated = Date.parse(departure.createdAt || "");
+    if (!Number.isFinite(rowCreated) || !Number.isFinite(departureCreated)) return true;
+
+    return departureCreated - rowCreated <= 12 * 60 * 60 * 1000;
+  });
+}
+
+function filterDepartureOnlyDisplayRows(rows) {
+  const departureKeys = new Set(rows
+    .filter((row) => isDepartureEvent(row) || row.eventTypes?.includes("departure"))
+    .map(roomDateKey)
+    .filter(Boolean));
+  const confirmedArrivalLikeKeys = new Set(rows.filter(isConfirmedArrivalLikeEvent).map(roomDateKey).filter(Boolean));
+  const departureOnlyKeys = new Set([...departureKeys].filter((key) => !confirmedArrivalLikeKeys.has(key)));
+
+  if (!departureOnlyKeys.size) return rows;
+
+  return rows.filter((row) => !departureOnlyKeys.has(roomDateKey(row)));
+}
+
+function vacantScheduleRowsForDate(date, rows, existingRows = []) {
+  const occupiedInList = new Set(existingRows.map((row) => String(row.room || "").trim()).filter(Boolean));
+
+  return vacantRoomsForDate(date, rows)
+    .filter((room) => !occupiedInList.has(room))
+    .map((room) => ({
+      id: `vacant-${date}-${room}`,
+      room,
+      date,
+      guests: 0,
+      children: 0,
+      babies: 0,
+      hasCrib: false,
+      hasHighChair: false,
+      isReturning: false,
+      isOccupied: false,
+      status: "pending",
+      gardenDone: false,
+      gardenDoneAt: "",
+      createdAt: "",
+      completedAt: "",
+      reportSource: "report",
+      eventType: "vacant",
+      bookingId: "",
+      arrivalDate: "",
+      departureDate: "",
+      reportMonth: monthKey(date)
+    }));
 }
 
 function reportEventKey(row) {
@@ -1455,7 +1527,7 @@ function Dashboard({ data, onNavigate }) {
   const todayDate = today();
   const openMaintenance = uniqueMaintenanceTasks(data.maintenance.filter((row) => !isDone(row))).length;
   const pendingShopping = data.shopping.filter((row) => !isPurchased(row)).length;
-  const todayRows = mergeScheduleListRows(uniqueReportEvents(data.turnovers.filter((row) => row.date === todayDate)));
+  const todayRows = filterDepartureOnlyDisplayRows(mergeScheduleListRows(uniqueReportEvents(filterStaleLegacyArrivalRows(data.turnovers.filter((row) => row.date === todayDate)))));
   const todayOpenRows = todayRows.filter((row) => !isDone(row));
   const todayTurnovers = todayOpenRows.length;
   const todayOpen = todayOpenRows.slice(0, 5);
@@ -1648,10 +1720,24 @@ function BookingTurnoversPanel({ rows, reportSync = [], saving, actions }) {
   const [pendingOverride, setPendingOverride] = useState(null);
   const [listFilters, setListFilters] = useState({ room: "", date: "" });
   const todayDate = today();
-  const todayRows = mergeScheduleListRows(uniqueReportEvents(rows.filter((row) => String(row.date || "").slice(0, 10) === todayDate)))
+  const todayScheduleRows = filterDepartureOnlyDisplayRows(mergeScheduleListRows(uniqueReportEvents(filterStaleLegacyArrivalRows(rows.filter((row) => String(row.date || "").slice(0, 10) === todayDate)))))
     .sort((a, b) => String(a.room || "").localeCompare(String(b.room || "")));
-  const futureRows = mergeScheduleListRows(uniqueReportEvents(rows.filter((row) => String(row.date || "").slice(0, 10) > todayDate)))
+  const todayRows = [...todayScheduleRows, ...vacantScheduleRowsForDate(todayDate, rows, todayScheduleRows)]
+    .sort((a, b) => String(a.room || "").localeCompare(String(b.room || "")));
+  const futureScheduleRows = filterDepartureOnlyDisplayRows(mergeScheduleListRows(uniqueReportEvents(filterStaleLegacyArrivalRows(rows.filter((row) => String(row.date || "").slice(0, 10) > todayDate)))))
     .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || String(a.room || "").localeCompare(String(b.room || "")));
+  const futureDates = [...new Set(rows
+    .map((row) => String(row.date || "").slice(0, 10))
+    .filter((date) => date > todayDate))]
+    .sort();
+  const futureRows = [
+    ...futureScheduleRows,
+    ...futureDates.flatMap((date) => vacantScheduleRowsForDate(
+      date,
+      rows,
+      futureScheduleRows.filter((row) => String(row.date || "").slice(0, 10) === date)
+    ))
+  ].sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || String(a.room || "").localeCompare(String(b.room || "")));
   const baseVisibleRows = view === "today" ? todayRows : futureRows;
   const visibleRows = baseVisibleRows.filter((row) => {
     const rowDate = String(row.date || "").slice(0, 10);
@@ -2061,8 +2147,8 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
   const [month, setMonth] = useState(monthKey(today()));
   const [selectedDay, setSelectedDay] = useState(null);
   const [editingRow, setEditingRow] = useState(null);
-  const monthRows = uniqueReportEvents(rows.filter((row) => monthKey(row.date) === month));
-  const calendarRows = mergeScheduleListRows(monthRows);
+  const monthRows = uniqueReportEvents(filterStaleLegacyArrivalRows(rows.filter((row) => monthKey(row.date) === month)));
+  const calendarRows = filterDepartureOnlyDisplayRows(mergeScheduleListRows(monthRows));
   const rowsByDate = calendarRows.reduce((acc, row) => {
     const date = String(row.date || "").slice(0, 10);
     if (!date) return acc;
@@ -2271,7 +2357,7 @@ function getRoomOptions(rows) {
 
 function scheduleListLabels(row) {
   const types = row.eventTypes?.length ? row.eventTypes : [reportEventType(row)];
-  const ordered = ["arrival", "swap", "departure", "block"];
+  const ordered = ["arrival", "swap", "departure", "vacant", "block"];
   return ordered
     .filter((type) => types.includes(type))
     .map((type) => type === "block" ? "אחזקה" : REPORT_EVENT_LABELS[type])
@@ -2308,15 +2394,15 @@ function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, 
                 <p>
                   <DateText>{formatDisplayDate(row.date)}</DateText>
                   {labels.length ? ` · ${labels.join(" · ")}` : ""}
-                  {reportEventType(row) !== "departure" ? ` · ${row.guests || 0} אורחים` : ""}
+                  {reportEventType(row) !== "departure" && reportEventType(row) !== "vacant" ? ` · ${row.guests || 0} אורחים` : ""}
                   {row.children ? ` · ${row.children} ילדים` : ""}
                   {row.babies ? ` · ${row.babies} תינוקות` : ""}
-                  {row.isReturning ? " · לקוח חוזר" : " · לקוח חדש"}
+                  {reportEventType(row) !== "vacant" ? (row.isReturning ? " · לקוח חוזר" : " · לקוח חדש") : ""}
                 </p>
                 {row.notes && isMaintenanceScheduleRow(row) && <p className="turnover-note">הערה: {row.notes}</p>}
               </div>
               <div className="actions">
-                {canEdit && (
+                {canEdit && reportEventType(row) !== "vacant" && (
                   <button type="button" onClick={() => setEditingId(row.id)}>
                     ערוך
                   </button>
@@ -2439,7 +2525,7 @@ function HouseTurnoversPanel({ rows, reportSync = [], saving, user, actions }) {
   const [view, setView] = useState("today");
   const todayDate = today();
   const weekEnd = addDays(todayDate, 7);
-  const pending = mergeScheduleListRows(rows).filter((row) => !isDone(row));
+  const pending = filterDepartureOnlyDisplayRows(mergeScheduleListRows(uniqueReportEvents(filterStaleLegacyArrivalRows(rows)))).filter((row) => !isDone(row));
   const todayRows = pending
     .filter((row) => String(row.date || "").slice(0, 10) === todayDate)
     .sort((a, b) => String(a.room || "").localeCompare(String(b.room || "")));

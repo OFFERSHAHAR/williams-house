@@ -1,4 +1,4 @@
-import { copyFile } from "node:fs/promises";
+import { copyFile, cp, mkdir } from "node:fs/promises";
 
 await copyFile("dist/source-index.html", "dist/index.html");
 await copyFile("dist/source-index.html", "dist/src-index.html");
@@ -20,3 +20,10 @@ await Promise.all(
     "icon-1024.png"
   ].map((file) => copyFile(file, `dist/${file}`))
 );
+
+await Promise.all([
+  copyFile("dist/source-index.html", "index.html"),
+  copyFile("dist/source-index.html", "source-index.html"),
+  copyFile("dist/source-index.html", "src-index.html"),
+  mkdir("assets", { recursive: true }).then(() => cp("dist/assets", "assets", { recursive: true }))
+]);
