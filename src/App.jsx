@@ -607,6 +607,14 @@ function uniqueMaintenanceTasks(rows) {
   return [...byKey.values()];
 }
 
+function sortMaintenanceNewestFirst(rows) {
+  return rows.slice().sort((a, b) => {
+    const createdDiff = String(b.createdAt || b.id || "").localeCompare(String(a.createdAt || a.id || ""));
+    if (createdDiff) return createdDiff;
+    return String(a.dueDate || "9999-12-31").localeCompare(String(b.dueDate || "9999-12-31"));
+  });
+}
+
 function mergeScheduleListRows(rows) {
   const priority = { swap: 0, arrival: 1, departure: 2, block: 3 };
   const grouped = new Map();
@@ -2707,8 +2715,8 @@ function HouseRoomCard({ row, user, completing, onComplete, actions, showComplet
 
 function MaintenancePanel({ rows, turnovers, saving, user, actions }) {
   const [form, setForm] = useState({ title: "", description: "", location: "", dueDate: "", urgency: "רגיל" });
-  const open = uniqueMaintenanceTasks(rows.filter((row) => !isDone(row)));
-  const done = uniqueMaintenanceTasks(rows.filter((row) => isDone(row)));
+  const open = sortMaintenanceNewestFirst(uniqueMaintenanceTasks(rows.filter((row) => !isDone(row))));
+  const done = sortMaintenanceNewestFirst(uniqueMaintenanceTasks(rows.filter((row) => isDone(row))));
   const todayGardenRows = mergeScheduleListRows(uniqueReportEvents(turnovers
     .filter((row) => String(row.date || "").slice(0, 10) === today() && !row.gardenDone)
   )).sort((a, b) => String(a.room || "").localeCompare(String(b.room || "")));
