@@ -172,7 +172,6 @@ function handleApiGet(e) {
 
 function doPost(e) {
   try {
-    cleanupExpiredMessages();
     const body = JSON.parse(e.postData.contents);
     const { table, op, record, id, rows, summary } = body;
 
@@ -182,6 +181,10 @@ function doPost(e) {
 
     if (table === 'users') {
       throw new Error('Users are read-only via API');
+    }
+
+    if (table === 'messages') {
+      cleanupExpiredMessages();
     }
 
     let result;
@@ -495,8 +498,33 @@ function syncReportTurnovers(rows, summary) {
       if (key) manualRowsByRoomDate[key] = item;
     });
   const currentById = {};
+  const duplicateCurrentRows = [];
   currentReportRows.forEach(item => {
-    currentById[String(item.values[idIndex] || '')] = item;
+    const id = String(item.values[idIndex] || '');
+    const current = currentById[id];
+
+    if (!current) {
+      currentById[id] = item;
+      return;
+    }
+
+    const currentScore =
+      (current.record.completedAt ? 8 : 0) +
+      (current.record.gardenDoneAt ? 4 : 0) +
+      (current.record.gardenDone ? 2 : 0) +
+      (current.record.eventType ? 1 : 0);
+    const nextScore =
+      (item.record.completedAt ? 8 : 0) +
+      (item.record.gardenDoneAt ? 4 : 0) +
+      (item.record.gardenDone ? 2 : 0) +
+      (item.record.eventType ? 1 : 0);
+
+    if (nextScore >= currentScore) {
+      duplicateCurrentRows.push(current);
+      currentById[id] = item;
+    } else {
+      duplicateCurrentRows.push(item);
+    }
   });
 
   const incomingById = {};
@@ -549,7 +577,14 @@ function syncReportTurnovers(rows, summary) {
     });
   });
 
-  const removedRows = currentReportRows.filter(item => !incomingById[String(item.values[idIndex] || '')]);
+  const rowsToDeleteByNumber = {};
+  currentReportRows
+    .filter(item => !incomingById[String(item.values[idIndex] || '')])
+    .concat(duplicateCurrentRows)
+    .forEach(item => {
+      rowsToDeleteByNumber[item.rowNumber] = item;
+    });
+  const removedRows = Object.keys(rowsToDeleteByNumber).map(rowNumber => rowsToDeleteByNumber[rowNumber]);
 
   changedRows.forEach(item => {
     sheet.getRange(item.rowNumber, 1, 1, headers.length).setValues([item.row]);
@@ -644,6 +679,65 @@ function validateSchema() {
   });
 
   const result = ok ? 'OK - schema is valid' : report.join('\n');
+  Logger.log(result);
+  return result;
+}
+
+function repairTurnoversDuplicates() {
+  const sheet = ensureSheetHeaders_('turnovers');
+  const headers = SHEETS.turnovers;
+  const lastRow = sheet.getLastRow();
+  const idIndex = headers.indexOf('id');
+
+  if (lastRow < 2 || idIndex === -1) {
+    Logger.log('No turnovers rows to repair');
+    return 'No turnovers rows to repair';
+  }
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues().map((values, index) => ({
+    values: values,
+    rowNumber: index + 2,
+    record: rowToRecord_(values, headers)
+  }));
+  const byId = {};
+  const duplicates = [];
+
+  rows.forEach(item => {
+    const id = String(item.values[idIndex] || '').trim();
+    if (!id) return;
+
+    const current = byId[id];
+    if (!current) {
+      byId[id] = item;
+      return;
+    }
+
+    const currentScore =
+      (current.record.completedAt ? 8 : 0) +
+      (current.record.gardenDoneAt ? 4 : 0) +
+      (current.record.gardenDone ? 2 : 0) +
+      (current.record.eventType ? 1 : 0);
+    const nextScore =
+      (item.record.completedAt ? 8 : 0) +
+      (item.record.gardenDoneAt ? 4 : 0) +
+      (item.record.gardenDone ? 2 : 0) +
+      (item.record.eventType ? 1 : 0);
+
+    if (nextScore >= currentScore) {
+      duplicates.push(current);
+      byId[id] = item;
+    } else {
+      duplicates.push(item);
+    }
+  });
+
+  duplicates
+    .sort((a, b) => b.rowNumber - a.rowNumber)
+    .forEach(item => {
+      sheet.deleteRow(item.rowNumber);
+    });
+
+  const result = 'Removed duplicate turnover rows: ' + duplicates.length;
   Logger.log(result);
   return result;
 }

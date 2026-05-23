@@ -457,7 +457,33 @@ function reportEventKey(row) {
 }
 
 function uniqueReportEvents(rows) {
-  return [...new Map(rows.map((row) => [reportEventKey(row), row])).values()];
+  const byKey = new Map();
+
+  rows.forEach((row) => {
+    const id = String(row?.id || "").trim();
+    const key = id ? `id:${id}` : reportEventKey(row);
+    const current = byKey.get(key);
+
+    if (!current) {
+      byKey.set(key, row);
+      return;
+    }
+
+    const currentScore =
+      (current.completedAt ? 8 : 0) +
+      (current.gardenDoneAt ? 4 : 0) +
+      (current.gardenDone ? 2 : 0) +
+      (current.eventType ? 1 : 0);
+    const nextScore =
+      (row.completedAt ? 8 : 0) +
+      (row.gardenDoneAt ? 4 : 0) +
+      (row.gardenDone ? 2 : 0) +
+      (row.eventType ? 1 : 0);
+
+    if (nextScore >= currentScore) byKey.set(key, row);
+  });
+
+  return [...byKey.values()];
 }
 
 function maintenanceTaskKey(row) {
@@ -483,7 +509,30 @@ function maintenanceTaskKey(row) {
 }
 
 function uniqueMaintenanceTasks(rows) {
-  return [...new Map(rows.map((row) => [maintenanceTaskKey(row), row])).values()];
+  const byKey = new Map();
+
+  rows.forEach((row) => {
+    const key = maintenanceTaskKey(row);
+    const current = byKey.get(key);
+
+    if (!current) {
+      byKey.set(key, row);
+      return;
+    }
+
+    const currentDone = isDone(current);
+    const nextDone = isDone(row);
+    if (nextDone && !currentDone) {
+      byKey.set(key, row);
+      return;
+    }
+
+    if (nextDone === currentDone && String(row.completedAt || row.createdAt || "") >= String(current.completedAt || current.createdAt || "")) {
+      byKey.set(key, row);
+    }
+  });
+
+  return [...byKey.values()];
 }
 
 function mergeScheduleListRows(rows) {
@@ -955,6 +1004,7 @@ export default function App() {
   const [actionNotice, setActionNotice] = useState(null);
   const [hiddenMaintenanceNotices, setHiddenMaintenanceNotices] = useState([]);
   const pendingWritesRef = useRef(0);
+  const pendingActionKeysRef = useRef(new Set());
   const previousTurnoversRef = useRef(cachedSnapshot?.data?.turnovers || []);
   const [user, setUser] = useState(() => {
     try {
@@ -1030,6 +1080,11 @@ export default function App() {
 
   const markPending = (key, pending) => {
     if (!key) return;
+    if (pending) {
+      pendingActionKeysRef.current.add(key);
+    } else {
+      pendingActionKeysRef.current.delete(key);
+    }
     setPendingActions((current) => {
       const next = new Set(current);
       if (pending) {
@@ -1041,7 +1096,10 @@ export default function App() {
     });
   };
 
-  const isPending = () => false;
+  const isPending = (key) => {
+    if (!key) return pendingActions.size > 0;
+    return pendingActions.has(key) || pendingActionKeysRef.current.has(key);
+  };
 
   useEffect(() => {
     if (!actionNotice) return;
@@ -1083,6 +1141,7 @@ export default function App() {
     },
     add: (table, record) => {
       const actionKey = `add:${table}`;
+      if (pendingActionKeysRef.current.has(actionKey)) return Promise.resolve();
       const notification = table === TABLES.turnovers
         ? {
           id: newId(),
@@ -1111,6 +1170,7 @@ export default function App() {
     },
     replaceTurnover: (removeId, record) => {
       const actionKey = `replace:${TABLES.turnovers}:${removeId}`;
+      if (pendingActionKeysRef.current.has(actionKey)) return Promise.resolve();
       const notification = {
         id: newId(),
         for: "house",
@@ -1138,6 +1198,7 @@ export default function App() {
     },
     update: (table, record) => {
       const actionKey = `update:${table}:${record.id}`;
+      if (pendingActionKeysRef.current.has(actionKey)) return Promise.resolve();
       const before = table === TABLES.turnovers ? data.turnovers.find((row) => row.id === record.id) : null;
       const summary = table === TABLES.turnovers ? turnoverChangeSummary(before, record) : "";
       const notification = summary
@@ -1168,6 +1229,7 @@ export default function App() {
     },
     syncReports: (nextReportRows, summary) => {
       const actionKey = "sync:reports";
+      if (pendingActionKeysRef.current.has(actionKey)) return Promise.resolve({ ...summary, queued: true });
       applyOptimisticData((current) => ({
         ...current,
         turnovers: [
@@ -1186,6 +1248,7 @@ export default function App() {
     },
     remove: (table, id) => {
       const actionKey = `remove:${table}:${id}`;
+      if (pendingActionKeysRef.current.has(actionKey)) return Promise.resolve();
       applyOptimisticData((current) => ({
         ...current,
         [table]: (current[table] || []).filter((row) => row.id !== id)
