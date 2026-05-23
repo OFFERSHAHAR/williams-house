@@ -2041,6 +2041,20 @@ button:disabled {
   touch-action: pan-y;
 }
 
+.screen.app-shell:has(.modal-backdrop),
+.screen.app-shell:has(.message-backdrop),
+.screen.app-shell:has(.maintenance-notice-backdrop),
+.panel:has(.modal-backdrop),
+.panel:has(.message-backdrop),
+.panel:has(.maintenance-notice-backdrop) {
+  transform: none;
+  animation: none;
+  animation-fill-mode: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  overflow: visible;
+}
+
 .calendar-modal {
   width: min(520px, 100%);
   max-height: min(82vh, 720px);

@@ -23,7 +23,6 @@ await Promise.all(
 
 await Promise.all([
   copyFile("dist/source-index.html", "index.html"),
-  copyFile("dist/source-index.html", "source-index.html"),
   copyFile("dist/source-index.html", "src-index.html"),
   mkdir("assets", { recursive: true }).then(() => cp("dist/assets", "assets", { recursive: true }))
 ]);
