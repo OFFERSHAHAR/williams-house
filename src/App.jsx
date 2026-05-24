@@ -46,6 +46,8 @@ const tabLabels = {
 
 const today = () => new Date().toISOString().slice(0, 10);
 const oneHourFromNow = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
+const BACKGROUND_REFRESH_MS = 120000;
+const MIN_REFRESH_GAP_MS = 45000;
 const addDays = (date, days) => {
   const next = new Date(`${date}T12:00:00`);
   next.setDate(next.getDate() + days);
@@ -1085,6 +1087,8 @@ export default function App() {
   const [hiddenMaintenanceNotices, setHiddenMaintenanceNotices] = useState([]);
   const pendingWritesRef = useRef(0);
   const pendingActionKeysRef = useRef(new Set());
+  const refreshInFlightRef = useRef(null);
+  const lastRefreshAtRef = useRef(0);
   const previousTurnoversRef = useRef(cachedSnapshot?.data?.turnovers || []);
   const [user, setUser] = useState(() => {
     try {
@@ -1095,24 +1099,40 @@ export default function App() {
   });
   const [tab, setTab] = useState("dashboard");
 
-  const loadData = async () => {
-    const nextData = await readAll();
-    const normalized = { ...emptyData, ...nextData };
-    const changes = findTurnoverChanges(previousTurnoversRef.current, normalized.turnovers);
-    if (changes.length > 0) {
-      const signature = scheduleNoticeSignature(changes);
-      if (signature !== readDismissedScheduleNotice()) {
-        setScheduleNotice({ items: changes, preview: scheduleNoticePreview(changes), signature });
+  const loadData = async ({ force = false } = {}) => {
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
+    if (!force && lastRefreshAtRef.current && Date.now() - lastRefreshAtRef.current < MIN_REFRESH_GAP_MS) {
+      return data;
+    }
+
+    const refresh = (async () => {
+      const nextData = await readAll();
+      const normalized = { ...emptyData, ...nextData };
+      const changes = findTurnoverChanges(previousTurnoversRef.current, normalized.turnovers);
+      if (changes.length > 0) {
+        const signature = scheduleNoticeSignature(changes);
+        if (signature !== readDismissedScheduleNotice()) {
+          setScheduleNotice({ items: changes, preview: scheduleNoticePreview(changes), signature });
+        } else {
+          setScheduleNotice(null);
+        }
       } else {
         setScheduleNotice(null);
       }
-    } else {
-      setScheduleNotice(null);
+      previousTurnoversRef.current = normalized.turnovers;
+      lastRefreshAtRef.current = Date.now();
+      setData(normalized);
+      saveCachedData(normalized);
+      return normalized;
+    })();
+
+    refreshInFlightRef.current = refresh;
+
+    try {
+      return await refresh;
+    } finally {
+      refreshInFlightRef.current = null;
     }
-    previousTurnoversRef.current = normalized.turnovers;
-    setData(normalized);
-    saveCachedData(normalized);
-    return normalized;
   };
 
   useEffect(() => {
@@ -1120,7 +1140,7 @@ export default function App() {
 
     let alive = true;
 
-    loadData()
+    loadData({ force: true })
       .catch((err) => {
         if (alive) setError(err.message || String(err));
       })
@@ -1136,13 +1156,21 @@ export default function App() {
   useEffect(() => {
     if (!user) return undefined;
 
-    const interval = window.setInterval(() => {
+    const refreshWhenReady = () => {
       if (document.hidden) return;
       if (pendingWritesRef.current > 0) return;
       loadData().catch(() => {});
-    }, 30000);
+    };
 
-    return () => window.clearInterval(interval);
+    const interval = window.setInterval(refreshWhenReady, BACKGROUND_REFRESH_MS);
+    document.addEventListener("visibilitychange", refreshWhenReady);
+    window.addEventListener("focus", refreshWhenReady);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshWhenReady);
+      window.removeEventListener("focus", refreshWhenReady);
+    };
   }, [user]);
 
   useEffect(() => {
@@ -1349,7 +1377,7 @@ export default function App() {
     let found = findUser(data.users);
     if (!found) {
       try {
-        const freshData = await loadData();
+        const freshData = await loadData({ force: true });
         found = findUser(freshData.users || []);
       } catch (err) {
         setError(err.message || String(err));
@@ -3195,12 +3223,16 @@ function MaintenanceNoticePopup({ notice, user, actions, onExit }) {
 
 function MessagePopup({ message, threadRows, user, actions }) {
   const [reply, setReply] = useState("");
+  const closingRef = useRef(false);
 
   useEffect(() => {
     setReply("");
+    closingRef.current = false;
   }, [message.id]);
 
   const close = () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
     actions.update(TABLES.messages, { ...message, read: true });
   };
 
