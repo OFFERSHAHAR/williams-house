@@ -4,6 +4,7 @@ const CACHE_KEY = "williams_house_data_cache";
 let cacheWriteTimer = null;
 const READ_TIMEOUT_MS = 12000;
 const WRITE_TIMEOUT_MS = 18000;
+const NETWORK_ERROR_MESSAGE = "החיבור לשיטס לא יציב כרגע. הנתונים האחרונים נשארים על המסך";
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = READ_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -13,7 +14,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = READ_TIMEOUT_MS) 
     return await fetch(url, { ...options, signal: controller.signal });
   } catch (err) {
     if (err.name === "AbortError") {
-      throw new Error("החיבור לשיטס איטי מדי. נסה שוב בעוד רגע");
+      throw new Error(NETWORK_ERROR_MESSAGE);
     }
 
     throw err;
@@ -22,12 +23,29 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = READ_TIMEOUT_MS) 
   }
 }
 
+async function readJsonResponse(response, fallbackMessage) {
+  const text = await response.text();
+  let data;
+
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(fallbackMessage);
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || fallbackMessage);
+  }
+
+  return data;
+}
+
 export async function readAll() {
   const url = new URL(API_URL);
   url.searchParams.set("action", "read");
 
   const response = await fetchWithTimeout(url.toString(), {}, READ_TIMEOUT_MS);
-  const data = await response.json();
+  const data = await readJsonResponse(response, NETWORK_ERROR_MESSAGE);
 
   if (!data.ok) {
     throw new Error(data.error || "Failed to load data");
@@ -88,7 +106,7 @@ async function writeRecord(payload) {
     body: JSON.stringify(payload)
   }, WRITE_TIMEOUT_MS);
 
-  const data = await response.json();
+  const data = await readJsonResponse(response, "השמירה לשיטס נכשלה. נסה שוב בעוד רגע");
 
   if (!data.ok) {
     throw new Error(data.error || "Failed to save data");

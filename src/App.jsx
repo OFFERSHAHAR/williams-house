@@ -46,8 +46,8 @@ const tabLabels = {
 
 const today = () => new Date().toISOString().slice(0, 10);
 const oneHourFromNow = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
-const BACKGROUND_REFRESH_MS = 120000;
-const MIN_REFRESH_GAP_MS = 45000;
+const BACKGROUND_REFRESH_MS = 300000;
+const MIN_REFRESH_GAP_MS = 90000;
 const addDays = (date, days) => {
   const next = new Date(`${date}T12:00:00`);
   next.setDate(next.getDate() + days);
@@ -1162,14 +1162,16 @@ export default function App() {
       loadData().catch(() => {});
     };
 
+    const refreshAfterReturn = () => {
+      if (!document.hidden) refreshWhenReady();
+    };
+
     const interval = window.setInterval(refreshWhenReady, BACKGROUND_REFRESH_MS);
-    document.addEventListener("visibilitychange", refreshWhenReady);
-    window.addEventListener("focus", refreshWhenReady);
+    document.addEventListener("visibilitychange", refreshAfterReturn);
 
     return () => {
       window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", refreshWhenReady);
-      window.removeEventListener("focus", refreshWhenReady);
+      document.removeEventListener("visibilitychange", refreshAfterReturn);
     };
   }, [user]);
 
