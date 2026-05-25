@@ -2185,6 +2185,7 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
   const [month, setMonth] = useState(monthKey(today()));
   const [selectedDay, setSelectedDay] = useState(null);
   const [editingRow, setEditingRow] = useState(null);
+  const todayDate = today();
   const monthRows = uniqueReportEvents(filterStaleLegacyArrivalRows(rows.filter((row) => monthKey(row.date) === month)));
   const calendarRows = filterDepartureOnlyDisplayRows(mergeScheduleListRows(monthRows));
   const rowsByDate = calendarRows.reduce((acc, row) => {
@@ -2280,7 +2281,8 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
               !cell.empty && cell.rows.some(isSwapEvent) ? "has-swaps" : "",
               !cell.empty && cell.rows.some(isDepartureEvent) ? "has-departures" : "",
               !cell.empty && cell.vacantRooms?.length ? "has-vacant" : "",
-              !cell.empty && cell.occupiedQuietRooms?.length ? "has-occupied-quiet" : ""
+              !cell.empty && cell.occupiedQuietRooms?.length ? "has-occupied-quiet" : "",
+              !cell.empty && cell.date === todayDate ? "is-today" : ""
             ].filter(Boolean).join(" ")}
             disabled={cell.empty}
             key={cell.key}
@@ -2291,6 +2293,7 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
               <>
                 <span className="calendar-date">{cell.day}</span>
                 <span className="calendar-weekday-name">{formatWeekdayName(cell.date)}</span>
+                {cell.date === todayDate && <span className="calendar-today-label">היום</span>}
                 {cell.rows.length > 0 && (
                   <div className="calendar-event-counts">
                     {cell.rows.filter(isPureArrivalEvent).length > 0 && <span className="count-arrival">{cell.rows.filter(isPureArrivalEvent).length}</span>}
