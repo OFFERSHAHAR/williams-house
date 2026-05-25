@@ -645,13 +645,25 @@ function mergeScheduleListRows(rows) {
   });
 
   return [...grouped.values()].map((row) => {
-    const eventTypes = [...row.events];
+    const sourceRows = row.eventRows?.length ? row.eventRows : [row];
+    const manualRows = sourceRows.filter((item) => !isReportTurnover(item));
+    const authoritativeRows = manualRows.length ? manualRows : sourceRows;
+    const chosen = authoritativeRows.slice().sort((a, b) => {
+      const typeDiff = (priority[reportEventType(a)] ?? 99) - (priority[reportEventType(b)] ?? 99);
+      if (typeDiff) return typeDiff;
+      return String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || ""));
+    })[0] || row;
+    const eventTypes = [...new Set(authoritativeRows.map((item) => reportEventType(item)))];
+    const key = roomDateKey(chosen) || roomDateKey(row);
     return {
       ...row,
-      id: `group-${roomDateKey(row)}`,
+      ...chosen,
+      id: `group-${key}`,
+      eventRows: sourceRows,
+      editRow: chosen,
       eventTypes,
-      isOccupied: eventTypes.includes("swap") || row.isOccupied,
-      status: row.editRow?.status || row.status
+      isOccupied: eventTypes.includes("swap") || chosen.isOccupied,
+      status: chosen.status || row.status
     };
   });
 }
@@ -2356,10 +2368,12 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                     <p>אין פעולה ביומן, אבל החדר בתוך טווח אירוח פעיל</p>
                   </article>
                 )}
-                {selectedDayDisplayRows.map((row, index) => (
+                {selectedDayDisplayRows.map((row, index) => {
+                  const editRow = row.editRow || row;
+                  return (
                   <article className={`calendar-modal-item ${reportEventClass(row)}`} key={`${reportEventKey(row)}-${index}`}>
-                    {editingRow?.id === row.id ? (
-                      <TurnoverEditForm row={row} rows={rows} actions={actions} onCancel={() => setEditingRow(null)} onSaved={() => setEditingRow(null)} />
+                    {editingRow?.id === editRow.id ? (
+                      <TurnoverEditForm row={editRow} rows={rows} actions={actions} onCancel={() => setEditingRow(null)} onSaved={() => setEditingRow(null)} />
                     ) : (
                       <>
                         <strong>{reportEventLabel(row)} · {row.room || "חדר"}</strong>
@@ -2372,7 +2386,7 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                         </p>
                         {canEdit && actions && (
                           <div className="actions calendar-modal-actions">
-                            <button className="edit-button" type="button" onClick={() => setEditingRow(row)}>
+                            <button className="edit-button" type="button" onClick={() => setEditingRow(editRow)}>
                               <span aria-hidden="true">✎</span>
                               ערוך
                             </button>
@@ -2381,7 +2395,8 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                       </>
                     )}
                   </article>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="calendar-modal-empty">אין כניסות ביום הזה</div>
@@ -2423,6 +2438,8 @@ function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, 
     <ListBlock title={title} empty="אין סידורים להצגה">
       {rows.map((row) => {
         const editRow = row.editRow || row;
+        const actionRow = row.editRow || row;
+        const actionKey = `update:${TABLES.turnovers}:${actionRow.id}`;
         const labels = scheduleListLabels(row);
         return (
         <article className={row.isOccupied ? "list-item turnover-swap" : "list-item"} key={row.id}>
@@ -2449,18 +2466,18 @@ function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, 
                   </button>
                 )}
                 {!readOnly && !isDone(row) && (
-                  <button type="button" disabled={actions.isPending(`update:${TABLES.turnovers}:${row.id}`)} onClick={() => actions.update(TABLES.turnovers, { ...row, status: "completed", completedAt: nowIso() })}>
-                    {actions.isPending(`update:${TABLES.turnovers}:${row.id}`) ? "מסמן..." : "בוצע"}
+                  <button type="button" disabled={actions.isPending(actionKey)} onClick={() => actions.update(TABLES.turnovers, { ...actionRow, status: "completed", completedAt: nowIso() })}>
+                    {actions.isPending(actionKey) ? "מסמן..." : "בוצע"}
                   </button>
                 )}
                 {!readOnly && !isDone(row) && (
-                  <button className={row.gardenDone ? "success-soft" : ""} type="button" disabled={actions.isPending(`update:${TABLES.turnovers}:${row.id}`)} onClick={() => actions.update(TABLES.turnovers, { ...row, gardenDone: true, gardenDoneAt: nowIso() })}>
-                    {actions.isPending(`update:${TABLES.turnovers}:${row.id}`) ? "מסמן..." : row.gardenDone ? "גינה ✓" : "גינה"}
+                  <button className={row.gardenDone ? "success-soft" : ""} type="button" disabled={actions.isPending(actionKey)} onClick={() => actions.update(TABLES.turnovers, { ...actionRow, gardenDone: true, gardenDoneAt: nowIso() })}>
+                    {actions.isPending(actionKey) ? "מסמן..." : row.gardenDone ? "גינה ✓" : "גינה"}
                   </button>
                 )}
                 {!readOnly && (
-                  <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.turnovers}:${row.id}`)} onClick={() => actions.remove(TABLES.turnovers, row.id)}>
-                    {actions.isPending(`remove:${TABLES.turnovers}:${row.id}`) ? "מוחק..." : "מחק"}
+                  <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.turnovers}:${actionRow.id}`)} onClick={() => actions.remove(TABLES.turnovers, actionRow.id)}>
+                    {actions.isPending(`remove:${TABLES.turnovers}:${actionRow.id}`) ? "מוחק..." : "מחק"}
                   </button>
                 )}
               </div>
@@ -2492,7 +2509,8 @@ function TurnoverEditForm({ row, rows, actions, onCancel, onSaved }) {
     event.preventDefault();
     if (!form.room.trim()) return;
     const duplicate = findDuplicateTurnover(rows, form, row.id);
-    if (duplicate) {
+    const manualOverridesReportDuplicate = !isReportTurnover(row) && isReportTurnover(duplicate);
+    if (duplicate && !manualOverridesReportDuplicate) {
       setDuplicateNotice(`כבר קיימת כניסה לאותו חדר באותו יום: ${turnoverDetails(duplicate)}`);
       return;
     }
