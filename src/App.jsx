@@ -2491,9 +2491,11 @@ function TurnoverList({ title, rows, allRows = rows, actions, readOnly = false, 
 }
 
 function TurnoverEditForm({ row, rows, actions, onCancel, onSaved }) {
+  const rowEventType = reportEventType(row);
   const [form, setForm] = useState({
     room: row.room || "",
-    date: String(row.date || today()).slice(0, 10),
+    date: String(row.arrivalDate || row.date || today()).slice(0, 10),
+    departureDate: String(row.departureDate || (rowEventType === "departure" ? row.date : "") || "").slice(0, 10),
     guests: Number(row.guests) || 0,
     children: Number(row.children) || 0,
     babies: Number(row.babies) || 0,
@@ -2514,10 +2516,15 @@ function TurnoverEditForm({ row, rows, actions, onCancel, onSaved }) {
       setDuplicateNotice(`כבר קיימת כניסה לאותו חדר באותו יום: ${turnoverDetails(duplicate)}`);
       return;
     }
+    const cleanArrivalDate = String(form.date || "").slice(0, 10);
+    const cleanDepartureDate = String(form.departureDate || "").slice(0, 10);
     await actions.update(TABLES.turnovers, {
       ...row,
       ...form,
       room: form.room.trim(),
+      date: rowEventType === "departure" && cleanDepartureDate ? cleanDepartureDate : cleanArrivalDate,
+      arrivalDate: cleanArrivalDate,
+      departureDate: cleanDepartureDate,
       updatedAt: nowIso()
     });
     setDuplicateNotice("");
@@ -2533,9 +2540,15 @@ function TurnoverEditForm({ row, rows, actions, onCancel, onSaved }) {
       </label>
       <div className="form-row">
         <label>
-          תאריך
+          תאריך כניסה
           <input type="date" value={form.date} onChange={(event) => setForm({ ...form, date: event.target.value })} />
         </label>
+        <label>
+          תאריך עזיבה
+          <input type="date" value={form.departureDate} onChange={(event) => setForm({ ...form, departureDate: event.target.value })} />
+        </label>
+      </div>
+      <div className="form-row">
         <label>
           אורחים
           <input type="number" min="0" value={form.guests} onChange={(event) => setForm({ ...form, guests: Number(event.target.value) || 0 })} />
