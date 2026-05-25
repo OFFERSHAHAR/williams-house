@@ -2518,6 +2518,26 @@ function TurnoverEditForm({ row, rows, actions, onCancel, onSaved }) {
     }
     const cleanArrivalDate = String(form.date || "").slice(0, 10);
     const cleanDepartureDate = String(form.departureDate || "").slice(0, 10);
+    const directBookingId = String(row.bookingId || "").trim();
+    const relatedBookingRows = directBookingId
+      ? rows.filter((item) =>
+        item.id !== row.id &&
+        String(item.bookingId || "").trim() === directBookingId &&
+        String(item.room || "").trim() === String(row.room || "").trim()
+      )
+      : [];
+    const normalizeBookingDates = (item) => {
+      const type = reportEventType(item);
+      return {
+        ...item,
+        room: form.room.trim(),
+        arrivalDate: cleanArrivalDate,
+        departureDate: cleanDepartureDate,
+        date: type === "departure" && cleanDepartureDate ? cleanDepartureDate : cleanArrivalDate,
+        updatedAt: nowIso()
+      };
+    };
+
     await actions.update(TABLES.turnovers, {
       ...row,
       ...form,
@@ -2527,6 +2547,7 @@ function TurnoverEditForm({ row, rows, actions, onCancel, onSaved }) {
       departureDate: cleanDepartureDate,
       updatedAt: nowIso()
     });
+    await Promise.all(relatedBookingRows.map((item) => actions.update(TABLES.turnovers, normalizeBookingDates(item))));
     setDuplicateNotice("");
     onSaved();
   };
