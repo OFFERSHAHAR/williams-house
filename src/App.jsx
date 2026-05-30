@@ -314,7 +314,30 @@ function reportRangeRows(rows) {
     }))
     .filter((row) => row.arrivalDate && row.departureDate && row.arrivalDate < row.departureDate);
 
-  return [...rangeRows, ...pairedRows];
+  const scoreRangeRow = (row) => {
+    const type = reportEventType(row);
+    const typeScore = { block: 50, swap: 45, arrival: 40, departure: 30 }[type] || 0;
+    return typeScore +
+      (row.completedAt ? 8 : 0) +
+      (row.gardenDoneAt ? 4 : 0) +
+      (row.gardenDone ? 2 : 0) +
+      (row.eventType ? 1 : 0);
+  };
+  const byRangeKey = new Map();
+
+  [...rangeRows, ...pairedRows].forEach((row) => {
+    const room = String(row.room || "").trim();
+    const bookingId = reportBookingId(row);
+    const arrivalDate = String(row.arrivalDate || "").slice(0, 10);
+    const departureDate = String(row.departureDate || "").slice(0, 10);
+    const key = [room, bookingId, arrivalDate, departureDate].join("|");
+    const current = byRangeKey.get(key);
+    if (!current || scoreRangeRow(row) >= scoreRangeRow(current)) {
+      byRangeKey.set(key, row);
+    }
+  });
+
+  return [...byRangeKey.values()];
 }
 
 function vacantRoomsForDate(date, rows) {
