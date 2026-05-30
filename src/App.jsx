@@ -112,6 +112,7 @@ const REPORT_TURNOVER_PREFIX = "report-";
 const REPORT_MAINTENANCE_PREFIX = `${REPORT_TURNOVER_PREFIX}maintenance-`;
 const REPORT_EVENT_LABELS = {
   arrival: "כניסה",
+  owner_stay: "שהיית בעלים",
   swap: "החלפה",
   departure: "עזיבה",
   vacant: "ריק",
@@ -241,6 +242,11 @@ function isMaintenanceReportTurnover(row) {
   return String(row?.id || "").startsWith(REPORT_MAINTENANCE_PREFIX);
 }
 
+function isOwnerStayText(value) {
+  const text = normalizeReportText(value).toLowerCase();
+  return /בעלים|בעל הבית|משפחה|חברים|אורח פרטי|כניסת בעלים|שהיית בעלים|owner|family|friends/.test(text);
+}
+
 function reportBookingId(row) {
   const direct = String(row?.bookingId || "").trim();
   if (direct) return direct;
@@ -270,7 +276,7 @@ function reportEventType(row) {
 
 function isArrivalEvent(row) {
   const type = reportEventType(row);
-  return type === "arrival" || type === "swap";
+  return type === "arrival" || type === "owner_stay" || type === "swap";
 }
 
 function isPureArrivalEvent(row) {
@@ -318,7 +324,7 @@ function reportRangeRows(rows) {
 
   const scoreRangeRow = (row) => {
     const type = reportEventType(row);
-    const typeScore = { block: 50, swap: 45, arrival: 40, departure: 30 }[type] || 0;
+    const typeScore = { block: 50, swap: 45, owner_stay: 42, arrival: 40, departure: 30 }[type] || 0;
     return typeScore +
       (row.completedAt ? 8 : 0) +
       (row.gardenDoneAt ? 4 : 0) +
@@ -351,7 +357,7 @@ function vacantRoomsForDate(date, rows) {
       .filter((row) => String(row?.date || row?.arrivalDate || "").slice(0, 10) === date)
       .filter((row) => {
         const type = reportEventType(row);
-        return type === "arrival" || type === "swap" || type === "block" || isMaintenanceReportTurnover(row);
+        return type === "arrival" || type === "owner_stay" || type === "swap" || type === "block" || isMaintenanceReportTurnover(row);
       })
       .map((row) => String(row.room || "").trim())
       .filter(Boolean)
@@ -446,7 +452,7 @@ function occupiedQuietRoomsForDate(date, rows, vacantRooms = []) {
       .filter((row) => String(row?.date || row?.arrivalDate || "").slice(0, 10) === date)
       .filter((row) => {
         const type = reportEventType(row);
-        return type === "arrival" || type === "swap" || type === "departure" || type === "block" || isMaintenanceReportTurnover(row);
+        return type === "arrival" || type === "owner_stay" || type === "swap" || type === "departure" || type === "block" || isMaintenanceReportTurnover(row);
       })
       .map((row) => String(row.room || "").trim())
       .filter(Boolean)
@@ -655,7 +661,7 @@ function sortMaintenanceNewestFirst(rows) {
 }
 
 function mergeScheduleListRows(rows) {
-  const priority = { swap: 0, arrival: 1, departure: 2, block: 3 };
+  const priority = { swap: 0, owner_stay: 1, arrival: 1, departure: 2, block: 3 };
   const grouped = new Map();
 
   rows.forEach((row) => {
@@ -710,6 +716,7 @@ function reportEventClass(row) {
 }
 
 function reportEventLabel(row) {
+  if (reportEventType(row) === "owner_stay") return "שהיית בעלים";
   if (isMaintenanceReportTurnover(row)) return "אחזקה";
   if (reportEventType(row) === "block") return "אחזקה";
   return REPORT_EVENT_LABELS[reportEventType(row)] || "כניסה";
@@ -948,8 +955,9 @@ function buildMaintenanceAnalysis(maintenanceSheetRows, currentRows, baseRows = 
     const description = normalizeReportText(getReportCell(row, headerMap, ["תיאור"]));
     const userName = normalizeReportText(getReportCell(row, headerMap, ["משתמש"]));
     const createdAt = parseReportDate(getReportCell(row, headerMap, ["תאריך יצירה"])) || nowIso();
+    const ownerStay = isOwnerStayText(`${status} ${description} ${userName}`);
     const notes = [
-      "אחזקה",
+      ownerStay ? "שהיית בעלים / משפחה / חברים" : "אחזקה",
       status,
       description ? `תיאור: ${description}` : "",
       userName ? `עודכן על ידי: ${userName}` : ""
@@ -959,21 +967,21 @@ function buildMaintenanceAnalysis(maintenanceSheetRows, currentRows, baseRows = 
       id: `${REPORT_MAINTENANCE_PREFIX}${roomNumber}-${date}`,
       room,
       date,
-      guests: 0,
+      guests: ownerStay ? 1 : 0,
       children: 0,
       babies: 0,
       hasCrib: false,
       hasHighChair: false,
       notes,
       isReturning: false,
-      isOccupied: false,
-      status: "maintenance",
+      isOccupied: ownerStay,
+      status: ownerStay ? "pending" : "maintenance",
       gardenDone: false,
       gardenDoneAt: "",
       createdAt,
       completedAt: "",
       reportSource: "report",
-      eventType: "block",
+      eventType: ownerStay ? "owner_stay" : "block",
       bookingId: `maintenance-${roomNumber}-${startDate}-${endDate}`,
       arrivalDate: startDate,
       departureDate: endDate,
@@ -2460,7 +2468,7 @@ function getRoomOptions(rows) {
 
 function scheduleListLabels(row) {
   const types = row.eventTypes?.length ? row.eventTypes : [reportEventType(row)];
-  const ordered = ["arrival", "swap", "departure", "vacant", "block"];
+  const ordered = ["arrival", "owner_stay", "swap", "departure", "vacant", "block"];
   return ordered
     .filter((type) => types.includes(type))
     .map((type) => type === "block" ? "אחזקה" : REPORT_EVENT_LABELS[type])
