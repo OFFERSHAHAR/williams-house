@@ -258,6 +258,10 @@ function reportEventType(row) {
   const id = String(row?.id || "");
   if (id.startsWith(`${REPORT_TURNOVER_PREFIX}departure-`)) return "departure";
   if (id.startsWith(`${REPORT_TURNOVER_PREFIX}block-`)) return "block";
+  const date = String(row?.date || "").slice(0, 10);
+  const arrivalDate = String(row?.arrivalDate || "").slice(0, 10);
+  const departureDate = String(row?.departureDate || "").slice(0, 10);
+  if (date && departureDate && date === departureDate && date !== arrivalDate) return "departure";
   const occupied = row?.isOccupied === true || row?.isOccupied === "TRUE" || row?.isOccupied === "true";
   return occupied ? "swap" : "arrival";
 }
@@ -479,7 +483,7 @@ function filterStaleLegacyArrivalRows(rows) {
   });
 }
 
-function filterDepartureOnlyDisplayRows(rows) {
+function filterDepartureOnlyDisplayRows(rows, vacantRoomsForDateResolver = null) {
   const departureKeys = new Set(rows
     .filter((row) => isDepartureEvent(row) || row.eventTypes?.includes("departure"))
     .map(roomDateKey)
@@ -489,7 +493,15 @@ function filterDepartureOnlyDisplayRows(rows) {
 
   if (!departureOnlyKeys.size) return rows;
 
-  return rows.filter((row) => !departureOnlyKeys.has(roomDateKey(row)));
+  return rows.filter((row) => {
+    const key = roomDateKey(row);
+    if (!departureOnlyKeys.has(key)) return true;
+    if (!vacantRoomsForDateResolver) return false;
+    const room = String(row.room || "").trim();
+    const date = String(row.date || "").slice(0, 10);
+    const vacantRooms = vacantRoomsForDateResolver(date) || [];
+    return !vacantRooms.includes(room);
+  });
 }
 
 function vacantScheduleRowsForDate(date, rows, existingRows = []) {
@@ -1577,7 +1589,10 @@ function Dashboard({ data, onNavigate }) {
   const todayDate = today();
   const openMaintenance = uniqueMaintenanceTasks(data.maintenance.filter((row) => !isDone(row))).length;
   const pendingShopping = data.shopping.filter((row) => !isPurchased(row)).length;
-  const todayRows = filterDepartureOnlyDisplayRows(mergeScheduleListRows(uniqueReportEvents(filterStaleLegacyArrivalRows(data.turnovers.filter((row) => row.date === todayDate)))));
+  const todayRows = filterDepartureOnlyDisplayRows(
+    mergeScheduleListRows(uniqueReportEvents(filterStaleLegacyArrivalRows(data.turnovers.filter((row) => row.date === todayDate)))),
+    (date) => vacantRoomsForDate(date, data.turnovers)
+  );
   const todayOpenRows = todayRows.filter((row) => !isDone(row));
   const todayTurnovers = todayOpenRows.length;
   const todayOpen = todayOpenRows.slice(0, 5);
@@ -1770,11 +1785,17 @@ function BookingTurnoversPanel({ rows, reportSync = [], saving, actions }) {
   const [pendingOverride, setPendingOverride] = useState(null);
   const [listFilters, setListFilters] = useState({ room: "", date: "" });
   const todayDate = today();
-  const todayScheduleRows = filterDepartureOnlyDisplayRows(mergeScheduleListRows(uniqueReportEvents(filterStaleLegacyArrivalRows(rows.filter((row) => String(row.date || "").slice(0, 10) === todayDate)))))
+  const todayScheduleRows = filterDepartureOnlyDisplayRows(
+    mergeScheduleListRows(uniqueReportEvents(filterStaleLegacyArrivalRows(rows.filter((row) => String(row.date || "").slice(0, 10) === todayDate)))),
+    (date) => vacantRoomsForDate(date, rows)
+  )
     .sort((a, b) => String(a.room || "").localeCompare(String(b.room || "")));
   const todayRows = [...todayScheduleRows, ...vacantScheduleRowsForDate(todayDate, rows, todayScheduleRows)]
     .sort((a, b) => String(a.room || "").localeCompare(String(b.room || "")));
-  const futureScheduleRows = filterDepartureOnlyDisplayRows(mergeScheduleListRows(uniqueReportEvents(filterStaleLegacyArrivalRows(rows.filter((row) => String(row.date || "").slice(0, 10) > todayDate)))))
+  const futureScheduleRows = filterDepartureOnlyDisplayRows(
+    mergeScheduleListRows(uniqueReportEvents(filterStaleLegacyArrivalRows(rows.filter((row) => String(row.date || "").slice(0, 10) > todayDate)))),
+    (date) => vacantRoomsForDate(date, rows)
+  )
     .sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")) || String(a.room || "").localeCompare(String(b.room || "")));
   const futureDates = [...new Set(rows
     .map((row) => String(row.date || "").slice(0, 10))
@@ -2199,7 +2220,7 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
   const [editingRow, setEditingRow] = useState(null);
   const todayDate = today();
   const monthRows = uniqueReportEvents(filterStaleLegacyArrivalRows(rows.filter((row) => monthKey(row.date) === month)));
-  const calendarRows = filterDepartureOnlyDisplayRows(mergeScheduleListRows(monthRows));
+  const calendarRows = filterDepartureOnlyDisplayRows(mergeScheduleListRows(monthRows), (date) => vacantRoomsForDate(date, rows));
   const rowsByDate = calendarRows.reduce((acc, row) => {
     const date = String(row.date || "").slice(0, 10);
     if (!date) return acc;
@@ -2232,7 +2253,8 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
     }))
   );
   const selectedDayRows = selectedDay?.rows || [];
-  const selectedDayDisplayRows = selectedDayRows.filter((row) => !isDepartureEvent(row));
+  const selectedDayVacantRooms = selectedDay?.vacantRooms || [];
+  const selectedDayDisplayRows = selectedDayRows.filter((row) => !isDepartureEvent(row) || !selectedDayVacantRooms.includes(String(row.room || "").trim()));
   const summaryGroups = [
     { key: "arrivals", label: "כניסות", className: "stat-arrival", rows: arrivalRows },
     { key: "swaps", label: "החלפות", className: "stat-swap", rows: swapRows },
@@ -2618,7 +2640,10 @@ function HouseTurnoversPanel({ rows, reportSync = [], saving, user, actions }) {
   const [view, setView] = useState("today");
   const todayDate = today();
   const weekEnd = addDays(todayDate, 7);
-  const pending = filterDepartureOnlyDisplayRows(mergeScheduleListRows(uniqueReportEvents(filterStaleLegacyArrivalRows(rows)))).filter((row) => !isDone(row));
+  const pending = filterDepartureOnlyDisplayRows(
+    mergeScheduleListRows(uniqueReportEvents(filterStaleLegacyArrivalRows(rows))),
+    (date) => vacantRoomsForDate(date, rows)
+  ).filter((row) => !isDone(row));
   const todayRows = pending
     .filter((row) => String(row.date || "").slice(0, 10) === todayDate)
     .sort((a, b) => String(a.room || "").localeCompare(String(b.room || "")));
