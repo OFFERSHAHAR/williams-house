@@ -263,7 +263,9 @@ function reportEventType(row) {
   const departureDate = String(row?.departureDate || "").slice(0, 10);
   if (date && departureDate && date === departureDate && date !== arrivalDate) return "departure";
   const occupied = row?.isOccupied === true || row?.isOccupied === "TRUE" || row?.isOccupied === "true";
-  return occupied ? "swap" : "arrival";
+  const hasStayRange = Boolean(arrivalDate && departureDate);
+  if (occupied && (!hasStayRange || !date || date === arrivalDate)) return "swap";
+  return "arrival";
 }
 
 function isArrivalEvent(row) {
