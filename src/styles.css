@@ -1573,7 +1573,7 @@ button:disabled {
 
 .orderly-forms {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 14px;
 }
 
@@ -1609,6 +1609,14 @@ button:disabled {
   margin: 0;
   color: inherit;
   opacity: 0.86;
+}
+
+.orderly-inventory-form textarea {
+  min-height: 142px;
+}
+
+.inventory-item p {
+  white-space: pre-wrap;
 }
 
 .role-maint .orderly-forms .form,

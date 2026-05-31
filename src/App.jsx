@@ -3493,9 +3493,13 @@ function NotificationsPanel({ rows, turnovers, user, actions }) {
 function OrderlyPanel({ rows, user, actions }) {
   const [extinguisherForm, setExtinguisherForm] = useState({ location: "", filledAt: "", expiresAt: "", notes: "" });
   const [irrigationForm, setIrrigationForm] = useState({ location: "", batteryChangedAt: "", scheduleCreatedAt: "", notes: "" });
+  const [inventoryText, setInventoryText] = useState("");
   const activeRows = rows.filter((row) => row.status !== "archived");
   const extinguishers = activeRows.filter((row) => row.type === "extinguisher");
   const irrigationControllers = activeRows.filter((row) => row.type === "irrigation");
+  const inventoryRows = activeRows
+    .filter((row) => row.type === "inventory")
+    .sort((a, b) => String(b.createdAt || b.id || "").localeCompare(String(a.createdAt || a.id || "")));
   const extinguisherAlerts = extinguishers
     .map((row) => ({ row, days: daysUntil(row.expiresAt) }))
     .filter((item) => item.days !== null && item.days <= 30)
@@ -3551,6 +3555,31 @@ function OrderlyPanel({ rows, user, actions }) {
       notes: irrigationForm.notes.trim()
     });
     setIrrigationForm({ location: "", batteryChangedAt: "", scheduleCreatedAt: "", notes: "" });
+  };
+
+  const addInventory = async (event) => {
+    event.preventDefault();
+    const text = inventoryText.trim();
+    if (!text) return;
+
+    await actions.add(TABLES.orderly, {
+      id: newId(),
+      type: "inventory",
+      name: "מלאי מחסן",
+      location: "מחסן",
+      filledAt: "",
+      expiresAt: "",
+      batteryChangedAt: "",
+      scheduleCreatedAt: "",
+      lastCheckedAt: "",
+      status: "active",
+      createdByName: user.display || user.username,
+      createdAt: nowIso(),
+      confirmedByName: "",
+      confirmedAt: "",
+      notes: text
+    });
+    setInventoryText("");
   };
 
   const confirmIrrigation = (row) => actions.update(TABLES.orderly, {
@@ -3636,6 +3665,21 @@ function OrderlyPanel({ rows, user, actions }) {
             הוסף מחשב
           </button>
         </form>
+
+        <form className="form orderly-inventory-form" onSubmit={addInventory}>
+          <div className="form-title"><strong>מלאי מחסן</strong></div>
+          <label>
+            רשימת מלאי
+            <textarea
+              value={inventoryText}
+              onChange={(event) => setInventoryText(event.target.value)}
+              placeholder="לדוגמה: נורות, סוללות, כפפות, חומרי ניקוי..."
+            />
+          </label>
+          <button className="primary" disabled={actions.isPending(`add:${TABLES.orderly}`) || !inventoryText.trim()} type="submit">
+            שמור מלאי
+          </button>
+        </form>
       </div>
 
       <ListBlock title="מטפים במעקב" empty="אין מטפים במעקב">
@@ -3685,6 +3729,24 @@ function OrderlyPanel({ rows, user, actions }) {
             </article>
           );
         })}
+      </ListBlock>
+
+      <ListBlock title="רשימת מלאי מחסן" empty="אין רשומות מלאי">
+        {inventoryRows.map((row) => (
+          <article className="list-item inventory-item" key={row.id}>
+            <div>
+              <strong>{row.name || "מלאי מחסן"}</strong>
+              <p>
+                {row.notes}
+                {row.createdByName ? ` · עודכן על ידי ${row.createdByName}` : ""}
+                {row.createdAt ? <> · <DateText>{formatDateTime(row.createdAt)}</DateText></> : ""}
+              </p>
+            </div>
+            <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.orderly}:${row.id}`)} onClick={() => actions.remove(TABLES.orderly, row.id)}>
+              מחק
+            </button>
+          </article>
+        ))}
       </ListBlock>
     </section>
   );
