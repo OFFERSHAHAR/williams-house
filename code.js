@@ -439,6 +439,7 @@ function mergeReportRecord_(currentRecord, nextRecord) {
 
 function appendReportSync_(summary) {
   ensureSheetHeaders_('report_sync');
+  const requestedBy = summary.requestedBy ? ' · דחף: ' + summary.requestedBy : '';
 
   const record = {
     id: 'report-sync-' + new Date().getTime(),
@@ -455,11 +456,12 @@ function appendReportSync_(summary) {
     manualOverrides: Number(summary.manualOverrides || 0),
     totalRows: Number(summary.totalRows || 0),
     status: summary.status || 'ok',
-    message: summary.message || '',
+    message: (summary.message || '') + requestedBy,
     reportMonth: summary.reportMonth || ''
   };
 
   addRecord('report_sync', record);
+  Logger.log('Report sync log: ' + JSON.stringify(record));
   return record;
 }
 

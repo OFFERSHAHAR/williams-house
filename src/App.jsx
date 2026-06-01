@@ -1273,14 +1273,15 @@ export default function App() {
     hapticTap(actionNotice.type === "error" ? 18 : 9);
   }, [actionNotice]);
 
-  const runInBackground = (operation, messages, actionKey) => {
+  const runInBackground = (operation, messages, actionKey, onSuccess) => {
     pendingWritesRef.current += 1;
     markPending(actionKey, true);
     setActionNotice({ type: "pending", text: messages.pending });
 
     Promise.resolve()
       .then(operation)
-      .then(() => {
+      .then((result) => {
+        if (onSuccess) onSuccess(result);
         setActionNotice({ type: "success", text: messages.success });
         window.setTimeout(() => {
           setActionNotice((current) => (current?.text === messages.success ? null : current));
@@ -1397,6 +1398,12 @@ export default function App() {
     syncReports: (nextReportRows, summary) => {
       const actionKey = "sync:reports";
       if (pendingActionKeysRef.current.has(actionKey)) return Promise.resolve({ ...summary, queued: true });
+      const requestedBy = user?.display || user?.username || "לא ידוע";
+      const syncSummary = {
+        ...summary,
+        requestedBy,
+        message: summary?.message || `דחיפת דוחות על ידי ${requestedBy}`
+      };
       applyOptimisticData((current) => ({
         ...current,
         turnovers: [
@@ -1406,12 +1413,22 @@ export default function App() {
       }));
 
       runInBackground(
-        () => syncReportTurnovers(nextReportRows, summary),
+        () => syncReportTurnovers(nextReportRows, syncSummary),
         { pending: "שומר דוחות ברקע...", success: "הדוחות נשמרו בשיטס" },
-        actionKey
+        actionKey,
+        (result) => {
+          if (!result?.syncRecord) return;
+          applyOptimisticData((current) => ({
+            ...current,
+            report_sync: [
+              result.syncRecord,
+              ...(current.report_sync || []).filter((row) => row.id !== result.syncRecord.id)
+            ]
+          }));
+        }
       );
       setError("");
-      return Promise.resolve({ ...summary, queued: true });
+      return Promise.resolve({ ...syncSummary, queued: true });
     },
     remove: (table, id) => {
       const actionKey = `remove:${table}:${id}`;
