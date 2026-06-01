@@ -3113,11 +3113,14 @@ function ShoppingList({ title, rows, actions, onPurchase }) {
 
 function HoursPanel({ rows, saving, user, users = [], actions }) {
   const [form, setForm] = useState({ date: today(), startTime: "08:00", endTime: "16:00" });
+  const [selectedMonth, setSelectedMonth] = useState(monthKey(today()));
+  const [showMonthSummary, setShowMonthSummary] = useState(true);
   const visibleRows = user.role === "admin"
     ? rows.filter((row) => isHouseOrMaintenanceHour(row))
     : rows.filter((row) => row.userId === user.username || row.userName === user.display);
-  const currentMonth = monthKey(today());
-  const monthTotal = visibleRows.filter((row) => monthKey(row.date) === currentMonth).reduce((sum, row) => sum + (Number(row.totalHours) || 0), 0);
+  const selectedMonthRows = visibleRows.filter((row) => monthKey(row.date) === selectedMonth);
+  const monthTotal = selectedMonthRows.reduce((sum, row) => sum + (Number(row.totalHours) || 0), 0);
+  const monthDays = new Set(selectedMonthRows.map((row) => String(row.date || "").slice(0, 10)).filter(Boolean)).size;
   const total = hoursBetween(form.startTime, form.endTime);
 
   const submit = async (event) => {
@@ -3137,7 +3140,32 @@ function HoursPanel({ rows, saving, user, users = [], actions }) {
 
   return (
     <section className="panel">
-      <SectionHead title="שעות" badge={`${monthTotal.toFixed(1)} החודש`} />
+      <SectionHead title="שעות" badge={`${monthTotal.toFixed(1)} ${formatMonthName(selectedMonth)}`} />
+      <div className="hours-month-control">
+        <label>
+          חודש לסיכום
+          <input type="month" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value || monthKey(today()))} />
+        </label>
+        <button type="button" onClick={() => setShowMonthSummary((current) => !current)}>
+          {showMonthSummary ? "הסתר סיכום" : "סיכום שעות"}
+        </button>
+      </div>
+      {showMonthSummary && (
+        <div className="hours-summary">
+          <div className="hours-total">
+            <span>סה״כ שעות</span>
+            <strong>{monthTotal.toFixed(1)}</strong>
+          </div>
+          <div className="hours-total">
+            <span>רישומים</span>
+            <strong>{selectedMonthRows.length}</strong>
+          </div>
+          <div className="hours-total">
+            <span>ימי עבודה</span>
+            <strong>{monthDays}</strong>
+          </div>
+        </div>
+      )}
       {user.role === "admin" ? (
         null
       ) : (
@@ -3162,8 +3190,8 @@ function HoursPanel({ rows, saving, user, users = [], actions }) {
           </button>
         </form>
       )}
-      <ListBlock title="רישומי שעות" empty="אין שעות">
-        {visibleRows.slice().reverse().slice(0, 20).map((row) => (
+      <ListBlock title={`רישומי שעות · ${formatMonthName(selectedMonth)}`} empty="אין שעות בחודש הזה">
+        {selectedMonthRows.slice().reverse().slice(0, 40).map((row) => (
           user.role === "admin" ? (
             <article className="list-item hours-row" key={row.id}>
               <span>שם: {displayHourUserName(row, users)}</span>

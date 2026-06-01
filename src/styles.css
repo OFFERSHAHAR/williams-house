@@ -962,6 +962,29 @@ textarea:focus {
   margin: 12px 0 18px;
 }
 
+.hours-month-control {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  margin: 10px 0 12px;
+}
+
+.hours-month-control label {
+  display: grid;
+  gap: 7px;
+}
+
+.hours-month-control label {
+  color: var(--ink-3);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.hours-month-control input {
+  min-height: 48px;
+}
+
 .hours-total {
   background: rgba(237, 243, 248, 0.8);
   border: 1px solid rgba(255, 255, 255, 0.82);
@@ -3840,6 +3863,10 @@ button:disabled {
   }
 
   .hours-row {
+    grid-template-columns: 1fr;
+  }
+
+  .hours-month-control {
     grid-template-columns: 1fr;
   }
 
