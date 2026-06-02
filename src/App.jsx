@@ -112,8 +112,7 @@ const ONE_SIGNAL_APP_ID = "46062f6a-d7a8-4714-8765-bac63a2e3bc5";
 const REPORT_TURNOVER_PREFIX = "report-";
 const REPORT_MAINTENANCE_PREFIX = `${REPORT_TURNOVER_PREFIX}maintenance-`;
 const REPORT_FILE_RULES = {
-  report: { label: "דוח משק", requiredName: "משק" },
-  maintenance: { label: "דוח אחזקה", requiredName: "אחזקה" }
+  report: { label: "דוח משק", requiredName: "משק" }
 };
 const REPORT_EVENT_LABELS = {
   arrival: "כניסה",
@@ -450,6 +449,23 @@ function reportRowOverlapsMonths(row, months) {
   }
 
   return false;
+}
+
+function reportRowMonthKeys(row) {
+  const startDate = dateKey(row?.arrivalDate || row?.date);
+  const endDate = dateKey(row?.departureDate || row?.date) || startDate;
+  const months = new Set();
+  if (!startDate || !endDate) return [];
+
+  let cursor = startDate;
+  for (let i = 0; i < 120 && cursor <= endDate; i += 1) {
+    const month = monthKey(cursor);
+    if (month) months.add(month);
+    if (cursor === endDate) break;
+    cursor = addDays(cursor, 1);
+  }
+
+  return [...months];
 }
 
 function vacantRoomsForDate(date, rows) {
@@ -1368,12 +1384,8 @@ function buildReportAnalysis(reportSheetRows, currentRows) {
     ].filter(Boolean);
   }).filter((row) => row.room && row.date);
 
-  const affectedMonths = new Set(reportNextRows.map((row) => monthKey(row.date)).filter(Boolean));
-  const keptMaintenanceRows = currentRows
-    .filter(isMaintenanceReportTurnover)
-    .filter((row) => reportRowOverlapsMonths(row, affectedMonths));
-  const visibleReportRows = reportNextRows.filter((row) => !isCoveredByMaintenanceReportRange(row, keptMaintenanceRows));
-  const nextRows = uniqueReportEvents([...visibleReportRows, ...keptMaintenanceRows]);
+  const affectedMonths = new Set(reportNextRows.flatMap(reportRowMonthKeys));
+  const nextRows = uniqueReportEvents(reportNextRows);
 
   const previousReportRows = currentRows
     .filter(isReportTurnover)
@@ -1399,6 +1411,7 @@ function buildReportAnalysis(reportSheetRows, currentRows) {
       children: arrivalRows.reduce((sum, row) => sum + (Number(row.children) || 0), 0),
       babies: arrivalRows.reduce((sum, row) => sum + (Number(row.babies) || 0), 0),
       blocks: nextRows.filter((row) => reportEventType(row) === "block").length,
+      maintenanceBlocks: nextRows.filter((row) => reportEventType(row) === "maintenance_stay").length,
       newRows: newRows.length,
       changedRows: changedRows.length,
       unchangedRows: unchangedRows.length,
@@ -1594,16 +1607,18 @@ function buildMaintenanceAnalysis(maintenanceSheetRows, currentRows, baseRows = 
 }
 
 function maintenanceRoomCount(analysis) {
-  const rows = analysis?.maintenanceRows || [];
+  const rows = analysis?.maintenanceRows?.length
+    ? analysis.maintenanceRows
+    : (analysis?.nextRows || []).filter((row) => reportEventType(row) === "maintenance_stay");
   if (!rows.length) return analysis?.summary?.maintenanceBlocks || 0;
   return new Set(rows.map((row) => row.bookingId || `${row.room}-${row.arrivalDate}-${row.departureDate}`)).size;
 }
 
 async function analyzeReportFiles(files, currentRows) {
-  if (!files.report && !files.maintenance) {
-    throw new Error("צריך לבחור דוח משק או דוח אחזקה");
+  if (!files.report) {
+    throw new Error("צריך לבחור דוח משק");
   }
-  validateReportFiles(files);
+  validateReportFiles({ report: files.report });
 
   let analysis = null;
   let validation = emptyReportValidation();
@@ -1612,23 +1627,6 @@ async function analyzeReportFiles(files, currentRows) {
     const reportSheetRows = await readReportSheet(files.report);
     analysis = buildReportAnalysis(reportSheetRows, currentRows);
     validation = mergeReportValidation(validation, analysis.validation);
-  }
-
-  if (files.maintenance) {
-    const maintenanceSheetRows = await readReportSheet(files.maintenance);
-    const maintenanceAnalysis = isMeshkReportSheet(maintenanceSheetRows)
-      ? buildReportAnalysis(maintenanceSheetRows, currentRows)
-      : buildMaintenanceAnalysis(maintenanceSheetRows, currentRows, analysis?.nextRows || []);
-    validation = mergeReportValidation(validation, maintenanceAnalysis.validation);
-    analysis = {
-      ...maintenanceAnalysis,
-      validation,
-      summary: {
-        ...maintenanceAnalysis.summary,
-        duplicateRows: validation.duplicates.length,
-        invalidRows: validation.invalidRows.length
-      }
-    };
   }
 
   if (!analysis) return analysis;
@@ -1996,11 +1994,11 @@ export default function App() {
         requestedBy,
         message: summary?.message || `דחיפת דוחות על ידי ${requestedBy}`
       };
-      const affectedMonths = new Set(nextReportRows.map((row) => monthKey(row.date)).filter(Boolean));
+      const affectedMonths = new Set(nextReportRows.flatMap(reportRowMonthKeys));
       applyOptimisticData((current) => ({
         ...current,
         turnovers: [
-          ...(current.turnovers || []).filter((row) => !isReportTurnover(row) || !affectedMonths.has(monthKey(row.date))),
+          ...(current.turnovers || []).filter((row) => !isReportTurnover(row) || !reportRowOverlapsMonths(row, affectedMonths)),
           ...nextReportRows
         ]
       }));
@@ -2807,15 +2805,10 @@ function ReportsImportPanel({ rows, reportSync = [], user, actions }) {
           <input accept=".xlsx,.xls" type="file" onChange={(event) => setFile("report", event.target.files?.[0] || null)} />
           <strong>{files.report?.name || "לא נבחר קובץ"}</strong>
         </label>
-        <label className="report-file">
-          <span>דוח אחזקה</span>
-          <input accept=".xlsx,.xls" type="file" onChange={(event) => setFile("maintenance", event.target.files?.[0] || null)} />
-          <strong>{files.maintenance?.name || "לא נבחר קובץ"}</strong>
-        </label>
       </div>
 
       <div className="actions report-actions">
-        <button className="primary" disabled={busy || (!files.report && !files.maintenance)} type="button" onClick={analyze}>
+        <button className="primary" disabled={busy || !files.report} type="button" onClick={analyze}>
           {busy ? "בודק..." : "בדוק שינויים"}
         </button>
         <button disabled={busy || !canApplyReports} type="button" onClick={applyToSheets}>

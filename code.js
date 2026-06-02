@@ -370,6 +370,38 @@ function recordMonthKey_(record) {
   return formatMonthKey_(record.date);
 }
 
+function addDaysKey_(value, amount) {
+  const dateKey = formatDateKey_(value);
+  if (!dateKey) return '';
+
+  const date = new Date(dateKey + 'T12:00:00');
+  if (isNaN(date.getTime())) return '';
+
+  date.setDate(date.getDate() + amount);
+  return formatDateKey_(date);
+}
+
+function recordMonthKeys_(record) {
+  const startDate = formatDateKey_(record.arrivalDate || record.date);
+  const endDate = formatDateKey_(record.departureDate || record.date) || startDate;
+  const months = {};
+  if (!startDate || !endDate) return [];
+
+  let cursor = startDate;
+  for (let i = 0; i < 120 && cursor <= endDate; i += 1) {
+    const month = formatMonthKey_(cursor);
+    if (month) months[month] = true;
+    if (cursor === endDate) break;
+    cursor = addDaysKey_(cursor, 1);
+  }
+
+  return Object.keys(months);
+}
+
+function recordOverlapsMonths_(record, reportMonths) {
+  return recordMonthKeys_(record).some(month => Boolean(reportMonths[month]));
+}
+
 function createReportSyncNotifications_(summary) {
   const hasChanges =
     Number(summary.newRows || 0) > 0 ||
@@ -506,11 +538,12 @@ function syncReportTurnovers(rows, summary) {
     : [];
   const reportMonths = {};
   rows.forEach(record => {
-    const month = recordMonthKey_(record);
-    if (month) reportMonths[month] = true;
+    recordMonthKeys_(record).forEach(month => {
+      if (month) reportMonths[month] = true;
+    });
   });
   const reportMonthKeys = Object.keys(reportMonths).sort();
-  const isInReportMonth = item => Boolean(reportMonths[recordMonthKey_(item.record)]);
+  const isInReportMonth = item => recordOverlapsMonths_(item.record, reportMonths);
   const currentReportRows = currentRows
     .filter(item => isReportTurnover_(item.values, headers))
     .filter(isInReportMonth);
