@@ -1119,9 +1119,11 @@ function collectMeshkReportValidation(sheetRows) {
     const firstName = normalizeReportText(getReportCell(row, headerMap, ["שם פרטי"]));
     const lastName = normalizeReportText(getReportCell(row, headerMap, ["שם משפחה"]));
     const phone = normalizeReportText(getReportCell(row, headerMap, ["טלפון"]));
-    const hasAnyData = room || arrivalDate || departureDate || people || firstName || lastName || phone;
+    const hasBookingData = arrivalDate || departureDate || people || firstName || lastName || phone;
 
-    if (hasAnyData && (!room || !arrivalDate || !departureDate || !people)) {
+    if (!hasBookingData) return;
+
+    if (!room || !arrivalDate || !departureDate || !people) {
       invalidRows.push({
         source: "דוח משק",
         row: sheetRowNumber,
@@ -1131,8 +1133,6 @@ function collectMeshkReportValidation(sheetRows) {
       });
       return;
     }
-
-    if (!hasAnyData) return;
 
     const key = [
       room,
@@ -2928,43 +2928,69 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
   const [month, setMonth] = useState(monthKey(today()));
   const [selectedDay, setSelectedDay] = useState(null);
   const [editingRow, setEditingRow] = useState(null);
+  const safeRows = rows || [];
   const todayDate = today();
-  const monthRows = uniqueReportEvents(filterStaleLegacyArrivalRows(rows.filter((row) => monthKey(row.date) === month)));
-  const calendarRows = filterDepartureOnlyDisplayRows(mergeScheduleListRows(monthRows), (date) => vacantRoomsForDate(date, rows));
-  const rowsByDate = calendarRows.reduce((acc, row) => {
+  const monthRows = useMemo(
+    () => uniqueReportEvents(filterStaleLegacyArrivalRows(safeRows.filter((row) => monthKey(row.date) === month))),
+    [safeRows, month]
+  );
+  const calendarRows = useMemo(
+    () => filterDepartureOnlyDisplayRows(mergeScheduleListRows(monthRows), (date) => vacantRoomsForDate(date, safeRows)),
+    [monthRows, safeRows]
+  );
+  const rowsByDate = useMemo(() => calendarRows.reduce((acc, row) => {
     const date = dateKey(row.date);
     if (!date) return acc;
     if (!acc[date]) acc[date] = [];
     acc[date].push(row);
     return acc;
-  }, {});
-  const first = new Date(`${monthStart(month)}T12:00:00`);
-  const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
-  const startOffset = first.getDay();
-  const cells = [
-    ...Array.from({ length: startOffset }, (_, index) => ({ key: `empty-${index}`, empty: true })),
-    ...Array.from({ length: daysInMonth }, (_, index) => {
+  }, {}), [calendarRows]);
+  const monthMeta = useMemo(() => {
+    const first = new Date(`${monthStart(month)}T12:00:00`);
+    return {
+      daysInMonth: new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate(),
+      startOffset: first.getDay()
+    };
+  }, [month]);
+  const cells = useMemo(() => [
+    ...Array.from({ length: monthMeta.startOffset }, (_, index) => ({ key: `empty-${index}`, empty: true })),
+    ...Array.from({ length: monthMeta.daysInMonth }, (_, index) => {
       const day = index + 1;
       const date = `${month}-${String(day).padStart(2, "0")}`;
       const dayRows = rowsByDate[date] || [];
-      const vacantRooms = vacantRoomsForDate(date, rows);
-      const occupiedQuietRooms = occupiedQuietRoomsForDate(date, rows, vacantRooms);
-      return { key: date, date, day, rows: dayRows, vacantRooms, occupiedQuietRooms };
+      const vacantRooms = vacantRoomsForDate(date, safeRows);
+      const occupiedQuietRooms = occupiedQuietRoomsForDate(date, safeRows, vacantRooms);
+      const visibleRows = dayRows.filter((row) => !isDepartureEvent(row));
+      return {
+        key: date,
+        date,
+        day,
+        rows: dayRows,
+        visibleRows,
+        arrivalCount: dayRows.filter(isPureArrivalEvent).length,
+        swapCount: dayRows.filter(isSwapEvent).length,
+        departureCount: dayRows.filter(isDepartureEvent).length,
+        vacantRooms,
+        occupiedQuietRooms
+      };
     })
-  ];
-  const arrivalRows = calendarRows.filter(isPureArrivalEvent);
-  const swapRows = calendarRows.filter(isSwapEvent);
-  const vacantRows = cells.flatMap((cell) =>
+  ], [month, monthMeta, rowsByDate, safeRows]);
+  const arrivalRows = useMemo(() => calendarRows.filter(isPureArrivalEvent), [calendarRows]);
+  const swapRows = useMemo(() => calendarRows.filter(isSwapEvent), [calendarRows]);
+  const vacantRows = useMemo(() => cells.flatMap((cell) =>
     (cell.vacantRooms || []).map((room) => ({
       id: `vacant-${cell.date}-${room}`,
       eventType: "vacant",
       room,
       date: cell.date
     }))
-  );
+  ), [cells]);
   const selectedDayRows = selectedDay?.rows || [];
   const selectedDayVacantRooms = selectedDay?.vacantRooms || [];
-  const selectedDayDisplayRows = selectedDayRows.filter((row) => !isDepartureEvent(row) || !selectedDayVacantRooms.includes(String(row.room || "").trim()));
+  const selectedDayDisplayRows = useMemo(
+    () => selectedDayRows.filter((row) => !isDepartureEvent(row) || !selectedDayVacantRooms.includes(String(row.room || "").trim())),
+    [selectedDayRows, selectedDayVacantRooms]
+  );
   const summaryGroups = [
     { key: "arrivals", label: "כניסות", className: "stat-arrival", rows: arrivalRows },
     { key: "swaps", label: "החלפות", className: "stat-swap", rows: swapRows },
@@ -3023,7 +3049,7 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
               cell.empty ? "calendar-day empty-day" : cell.rows.length ? "calendar-day has-entries" : "calendar-day",
               !cell.empty && cell.rows.some(isPureArrivalEvent) ? "has-arrivals" : "",
               !cell.empty && cell.rows.some(isSwapEvent) ? "has-swaps" : "",
-              !cell.empty && cell.rows.some(isDepartureEvent) ? "has-departures" : "",
+              !cell.empty && cell.departureCount ? "has-departures" : "",
               !cell.empty && cell.vacantRooms?.length ? "has-vacant" : "",
               !cell.empty && cell.occupiedQuietRooms?.length ? "has-occupied-quiet" : "",
               !cell.empty && cell.date === todayDate ? "is-today" : ""
@@ -3040,8 +3066,8 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                 {cell.date === todayDate && <span className="calendar-today-label">היום</span>}
                 {cell.rows.length > 0 && (
                   <div className="calendar-event-counts">
-                    {cell.rows.filter(isPureArrivalEvent).length > 0 && <span className="count-arrival">{cell.rows.filter(isPureArrivalEvent).length}</span>}
-                    {cell.rows.filter(isSwapEvent).length > 0 && <span className="count-swap">{cell.rows.filter(isSwapEvent).length}</span>}
+                    {cell.arrivalCount > 0 && <span className="count-arrival">{cell.arrivalCount}</span>}
+                    {cell.swapCount > 0 && <span className="count-swap">{cell.swapCount}</span>}
                   </div>
                 )}
                 {cell.vacantRooms?.length > 0 && (
@@ -3054,12 +3080,12 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                     <span className="count-occupied">{cell.occupiedQuietRooms.length}</span>
                   </div>
                 )}
-                {cell.rows.filter((row) => !isDepartureEvent(row)).slice(0, 3).map((row, index) => (
+                {cell.visibleRows.slice(0, 3).map((row, index) => (
                   <small className={reportEventClass(row)} key={`${reportEventKey(row)}-${index}`}>
                     {reportEventLabel(row)} · {row.room || "חדר"}
                   </small>
                 ))}
-                {cell.rows.filter((row) => !isDepartureEvent(row)).length > 3 && <small>+{cell.rows.filter((row) => !isDepartureEvent(row)).length - 3} נוספים</small>}
+                {cell.visibleRows.length > 3 && <small>+{cell.visibleRows.length - 3} נוספים</small>}
                 {cell.vacantRooms?.length > 0 && (
                   <small className="event-vacant">ריקים · {cell.vacantRooms.slice(0, 2).join(" · ")}</small>
                 )}

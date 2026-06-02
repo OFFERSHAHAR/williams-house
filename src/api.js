@@ -2,6 +2,7 @@ import { API_URL } from "./config";
 
 const CACHE_KEY = "williams_house_data_cache";
 let cacheWriteTimer = null;
+let cacheIdleCallback = null;
 const READ_TIMEOUT_MS = 12000;
 const WRITE_TIMEOUT_MS = 18000;
 const NETWORK_ERROR_MESSAGE = "החיבור לשיטס לא יציב כרגע. הנתונים האחרונים נשארים על המסך";
@@ -66,9 +67,18 @@ export function readCachedData() {
 export function saveCachedData(data) {
   if (cacheWriteTimer) {
     window.clearTimeout(cacheWriteTimer);
+    cacheWriteTimer = null;
   }
 
-  cacheWriteTimer = window.setTimeout(() => {
+  if (cacheIdleCallback && "cancelIdleCallback" in window) {
+    window.cancelIdleCallback(cacheIdleCallback);
+    cacheIdleCallback = null;
+  }
+
+  const writeCache = () => {
+    cacheWriteTimer = null;
+    cacheIdleCallback = null;
+
     try {
       localStorage.setItem(
         CACHE_KEY,
@@ -80,7 +90,14 @@ export function saveCachedData(data) {
     } catch {
       // Cache is a speed improvement only. Failure should not block the app.
     }
-  }, 250);
+  };
+
+  if ("requestIdleCallback" in window) {
+    cacheIdleCallback = window.requestIdleCallback(writeCache, { timeout: 2000 });
+    return;
+  }
+
+  cacheWriteTimer = window.setTimeout(writeCache, 1000);
 }
 
 export async function addRecord(table, record) {
