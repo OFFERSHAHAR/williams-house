@@ -1018,15 +1018,20 @@ function extractMeshkReportRows(sheetRows) {
   }
 
   const headerMap = makeReportHeaderMap(sheetRows[headerIndex]);
-  const uniqueRows = new Map();
+  let currentSnapshotDate = "";
+  const occurrencesByBooking = new Map();
 
   sheetRows.slice(headerIndex + 1).forEach((row) => {
     const firstCell = normalizeReportText(row[0]);
+    if (firstCell.startsWith("תאריך:")) {
+      currentSnapshotDate = parseReportDate(firstCell.replace("תאריך:", "").trim()) || currentSnapshotDate;
+      return;
+    }
+
     if (
       !firstCell ||
       firstCell === "חדר" ||
       firstCell.startsWith("משק ") ||
-      firstCell.startsWith("תאריך:") ||
       firstCell.startsWith("מלון:") ||
       firstCell.startsWith("סטטוס:")
     ) {
@@ -1042,6 +1047,8 @@ function extractMeshkReportRows(sheetRows) {
     const firstName = normalizeReportText(getReportCell(row, headerMap, ["שם פרטי"]));
     const lastName = normalizeReportText(getReportCell(row, headerMap, ["שם משפחה"]));
     const phone = normalizeReportText(getReportCell(row, headerMap, ["טלפון"]));
+    const reportNote = cleanReportNote(getReportCell(row, headerMap, ["הערות"]));
+    const maintenanceState = normalizeReportText(getReportCell(row, headerMap, ["מצב תחזוקה", "סוג סטטוס תחזוקה", "מצב"]));
     const key = [
       room,
       firstName,
@@ -1052,20 +1059,41 @@ function extractMeshkReportRows(sheetRows) {
       people
     ].join("|");
 
-    if (!uniqueRows.has(key)) {
-      uniqueRows.set(key, { row, headerMap });
-      return;
+    if (!occurrencesByBooking.has(key)) {
+      occurrencesByBooking.set(key, []);
     }
-
-    const current = uniqueRows.get(key);
-    const currentNote = cleanReportNote(getReportCell(current.row, current.headerMap, ["הערות"]));
-    const nextNote = cleanReportNote(getReportCell(row, headerMap, ["הערות"]));
-    if (!currentNote && nextNote) {
-      uniqueRows.set(key, { row, headerMap });
-    }
+    occurrencesByBooking.get(key).push({
+      row,
+      headerMap,
+      snapshotDate: currentSnapshotDate,
+      arrivalDate,
+      departureDate,
+      reportNote,
+      maintenanceState
+    });
   });
 
-  return [...uniqueRows.values()];
+  return [...occurrencesByBooking.values()].map((occurrences) => {
+    const sorted = [...occurrences].sort((a, b) => String(a.snapshotDate || "").localeCompare(String(b.snapshotDate || "")));
+    const { arrivalDate, departureDate } = sorted[0] || {};
+    const exactArrival = sorted.find((item) => item.snapshotDate === arrivalDate);
+    const activeSnapshot = sorted.find((item) =>
+      item.snapshotDate &&
+      arrivalDate &&
+      departureDate &&
+      arrivalDate <= item.snapshotDate &&
+      item.snapshotDate < departureDate
+    );
+    const withNote = sorted.find((item) => item.reportNote);
+    const best = exactArrival || activeSnapshot || withNote || sorted[0];
+
+    return {
+      row: best.row,
+      headerMap: best.headerMap,
+      snapshotDate: best.snapshotDate,
+      meshkOccurrences: sorted
+    };
+  });
 }
 
 function emptyReportValidation() {
@@ -1094,7 +1122,6 @@ function collectMeshkReportValidation(sheetRows) {
   if (headerIndex === -1) return emptyReportValidation();
 
   const headerMap = makeReportHeaderMap(sheetRows[headerIndex]);
-  const seen = new Map();
   const duplicates = [];
   const invalidRows = [];
 
@@ -1134,30 +1161,8 @@ function collectMeshkReportValidation(sheetRows) {
       return;
     }
 
-    const key = [
-      room,
-      firstName,
-      lastName,
-      phone.replace(/\D/g, ""),
-      arrivalDate,
-      departureDate,
-      people
-    ].join("|");
-    const previousRow = seen.get(key);
-
-    if (previousRow) {
-      duplicates.push({
-        source: "דוח משק",
-        row: sheetRowNumber,
-        duplicateOf: previousRow,
-        room,
-        date: arrivalDate,
-        message: `כפילות מול שורה ${previousRow}`
-      });
-      return;
-    }
-
-    seen.set(key, sheetRowNumber);
+    // דוח משק בנוי מבלוקים יומיים, ולכן אותה הזמנה חוזרת כמה פעמים בדוח.
+    // זו לא כפילות שגויה ולא צריכה לחסום את אישור השמירה.
   });
 
   return { duplicates, invalidRows };
@@ -1208,18 +1213,36 @@ function buildReportRecord({ row, headerMap }) {
   };
 }
 
-function buildMeshkReportRecord({ row, headerMap }) {
+function pickMeshkOccurrenceForDate(occurrences = [], targetDate = "", arrivalDate = "", departureDate = "") {
+  const sorted = [...occurrences].sort((a, b) => String(a.snapshotDate || "").localeCompare(String(b.snapshotDate || "")));
+  return sorted.find((item) => item.snapshotDate === targetDate) ||
+    sorted.find((item) =>
+      item.snapshotDate &&
+      arrivalDate &&
+      departureDate &&
+      arrivalDate <= item.snapshotDate &&
+      item.snapshotDate < departureDate
+    ) ||
+    sorted.find((item) => item.reportNote) ||
+    sorted[0] ||
+    null;
+}
+
+function buildMeshkReportRecord({ row, headerMap, snapshotDate, meshkOccurrences = [] }) {
   const room = normalizeReportRoom(getReportCell(row, headerMap, ["חדר"]));
   const firstName = normalizeReportText(getReportCell(row, headerMap, ["שם פרטי"]));
   const lastName = normalizeReportText(getReportCell(row, headerMap, ["שם משפחה"]));
   const phone = normalizeReportText(getReportCell(row, headerMap, ["טלפון"]));
   const arrivalDate = parseReportDate(getReportCell(row, headerMap, ["הגעה"]));
   const departureDate = parseReportDate(getReportCell(row, headerMap, ["יציאה"]));
+  const arrivalOccurrence = pickMeshkOccurrenceForDate(meshkOccurrences, arrivalDate, arrivalDate, departureDate);
+  const occurrenceRow = arrivalOccurrence?.row || row;
+  const occurrenceHeaderMap = arrivalOccurrence?.headerMap || headerMap;
   const nights = normalizeReportText(getReportCell(row, headerMap, ["לילות"]));
   const reservationStatus = normalizeReportText(getReportCell(row, headerMap, ["סטטוס הזמנה"]));
   const counts = parseGuestCounts(getReportCell(row, headerMap, ["כמות אנשים"]));
   const extras = normalizeReportText(getReportCell(row, headerMap, ["תוספות"]));
-  const maintenanceState = normalizeReportText(getReportCell(row, headerMap, ["מצב תחזוקה", "סוג סטטוס תחזוקה", "מצב"]));
+  const maintenanceState = normalizeReportText(getReportCell(occurrenceRow, occurrenceHeaderMap, ["מצב תחזוקה", "סוג סטטוס תחזוקה", "מצב"]));
   const reportNote = cleanReportNote(getReportCell(row, headerMap, ["הערות"]));
   const guestName = [firstName, lastName].filter(Boolean).join(" ");
   const bookingSeed = [room, guestName, phone, arrivalDate, departureDate, counts.guests, counts.children, counts.babies].join("|");
@@ -1244,7 +1267,8 @@ function buildMeshkReportRecord({ row, headerMap }) {
     baseNotes,
     counts,
     isMaintenance: isMaintenanceStayText(maintenanceState),
-    maintenanceState
+    maintenanceState,
+    snapshotDate: arrivalOccurrence?.snapshotDate || snapshotDate || arrivalDate
   };
 }
 
@@ -1279,10 +1303,14 @@ function buildReportAnalysis(reportSheetRows, currentRows) {
   const reportRows = isMeshkReport
     ? extractMeshkReportRows(reportSheetRows)
     : extractReportRows(reportSheetRows, ["מספר הזמנה", "תאריך הגעה", "תאריך עזיבה"]);
+  const firstSnapshotDate = isMeshkReport
+    ? reportRows.map((item) => item.snapshotDate).filter(Boolean).sort()[0] || ""
+    : "";
   const reportRecords = uniqueReportRecords(
     reportRows
       .map(isMeshkReport ? buildMeshkReportRecord : buildReportRecord)
       .filter((record) => record.bookingId && record.room && record.arrivalDate)
+      .filter((record) => !firstSnapshotDate || !record.departureDate || record.departureDate >= firstSnapshotDate)
   );
   const departureKeys = new Set(
     reportRecords
@@ -1347,7 +1375,9 @@ function buildReportAnalysis(reportSheetRows, currentRows) {
   const visibleReportRows = reportNextRows.filter((row) => !isCoveredByMaintenanceReportRange(row, keptMaintenanceRows));
   const nextRows = uniqueReportEvents([...visibleReportRows, ...keptMaintenanceRows]);
 
-  const previousReportRows = currentRows.filter(isReportTurnover);
+  const previousReportRows = currentRows
+    .filter(isReportTurnover)
+    .filter((row) => reportRowOverlapsMonths(row, affectedMonths));
   const previousById = new Map(previousReportRows.map((row) => [row.id, row]));
   const nextById = new Map(nextRows.map((row) => [row.id, row]));
   const changedRows = nextRows.filter((row) => turnoverChangeSummary(previousById.get(row.id), row));
