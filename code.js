@@ -207,6 +207,22 @@ function doPost(e) {
   }
 }
 
+function formatDateKey_(value) {
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  }
+
+  return String(value || '').slice(0, 10);
+}
+
+function formatMonthKey_(value) {
+  if (value instanceof Date) {
+    return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM');
+  }
+
+  return String(value || '').slice(0, 7);
+}
+
 function readSheet(name) {
   const sheet = getSS().getSheetByName(name);
   if (!sheet) return [];
@@ -252,13 +268,20 @@ function readSheet(name) {
       ) {
         v = (v === '' || v === null) ? null : Number(v);
       } else if (
-        (h === 'date' || h === 'dueDate' || h === 'lastReplaced' || h === 'filledAt' || h === 'expiresAt' || h === 'batteryChangedAt' || h === 'scheduleCreatedAt' || h === 'lastCheckedAt') &&
-        v instanceof Date
+        h === 'date' ||
+        h === 'dueDate' ||
+        h === 'lastReplaced' ||
+        h === 'filledAt' ||
+        h === 'expiresAt' ||
+        h === 'batteryChangedAt' ||
+        h === 'scheduleCreatedAt' ||
+        h === 'lastCheckedAt' ||
+        h === 'arrivalDate' ||
+        h === 'departureDate'
       ) {
-        const yyyy = v.getFullYear();
-        const mm = String(v.getMonth() + 1).padStart(2, '0');
-        const dd = String(v.getDate()).padStart(2, '0');
-        v = `${yyyy}-${mm}-${dd}`;
+        v = formatDateKey_(v);
+      } else if (h === 'reportMonth') {
+        v = formatMonthKey_(v);
       } else if (v instanceof Date) {
         v = v.toISOString();
       } else if (h === 'password') {
@@ -339,12 +362,12 @@ function isReportTurnover_(row, headers) {
 
 function roomDateKey_(record) {
   const room = String(record.room || '').trim().toLowerCase();
-  const date = String(record.date || '').slice(0, 10);
+  const date = formatDateKey_(record.date);
   return room && date ? room + '|' + date : '';
 }
 
 function recordMonthKey_(record) {
-  return String(record.date || '').slice(0, 7);
+  return formatMonthKey_(record.date);
 }
 
 function createReportSyncNotifications_(summary) {

@@ -735,7 +735,11 @@ function normalizeReportRoom(value) {
 function parseReportDate(value) {
   if (!value) return "";
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
-    return value.toISOString().slice(0, 10);
+    return [
+      value.getFullYear(),
+      String(value.getMonth() + 1).padStart(2, "0"),
+      String(value.getDate()).padStart(2, "0")
+    ].join("-");
   }
   if (typeof value === "number") {
     const parsed = XLSX.SSF.parse_date_code(value);
@@ -760,7 +764,7 @@ function parseGuestCounts(value) {
 }
 
 function cleanReportNote(value) {
-  const text = normalizeReportText(value);
+  const text = normalizeReportText(value).replace(/<[^>]+>/g, " ");
   if (!text || /no note/i.test(text)) return "";
   return text.replace(/^guest node:\s*/i, "").trim();
 }
@@ -770,16 +774,101 @@ function getReportCell(row, headerMap, names) {
   return key ? row[headerMap.get(key)] : "";
 }
 
+function findReportHeader(sheetRows, requiredHeaders) {
+  return sheetRows.findIndex((row) => {
+    const cells = row.map(normalizeReportText);
+    return requiredHeaders.every((header) => cells.includes(header));
+  });
+}
+
+function makeReportHeaderMap(row) {
+  return new Map(row.map((cell, index) => [normalizeReportText(cell), index]).filter(([cell]) => cell));
+}
+
+function hasReportHeaders(sheetRows, requiredHeaders) {
+  return findReportHeader(sheetRows, requiredHeaders) !== -1;
+}
+
+function isMeshkReportSheet(sheetRows) {
+  return hasReportHeaders(sheetRows, ["חדר", "הגעה", "יציאה", "כמות אנשים"]);
+}
+
 function extractReportRows(sheetRows, requiredHeaders) {
-  const headerIndex = sheetRows.findIndex((row) => requiredHeaders.every((header) => row.map(normalizeReportText).includes(header)));
+  const headerIndex = findReportHeader(sheetRows, requiredHeaders);
   if (headerIndex === -1) {
     throw new Error(`לא נמצאה שורת כותרות מתאימה בקובץ`);
   }
-  const headerMap = new Map(sheetRows[headerIndex].map((cell, index) => [normalizeReportText(cell), index]).filter(([cell]) => cell));
+  const headerMap = makeReportHeaderMap(sheetRows[headerIndex]);
   return sheetRows
     .slice(headerIndex + 1)
     .filter((row) => normalizeReportText(getReportCell(row, headerMap, ["מספר הזמנה"])).match(/^\d+$/))
     .map((row) => ({ row, headerMap }));
+}
+
+function stableReportId(value) {
+  const text = normalizeReportText(value);
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
+}
+
+function extractMeshkReportRows(sheetRows) {
+  const headerIndex = findReportHeader(sheetRows, ["חדר", "הגעה", "יציאה", "כמות אנשים"]);
+  if (headerIndex === -1) {
+    throw new Error("לא נמצאה שורת כותרות מתאימה בדוח משק");
+  }
+
+  const headerMap = makeReportHeaderMap(sheetRows[headerIndex]);
+  const uniqueRows = new Map();
+
+  sheetRows.slice(headerIndex + 1).forEach((row) => {
+    const firstCell = normalizeReportText(row[0]);
+    if (
+      !firstCell ||
+      firstCell === "חדר" ||
+      firstCell.startsWith("משק ") ||
+      firstCell.startsWith("תאריך:") ||
+      firstCell.startsWith("מלון:") ||
+      firstCell.startsWith("סטטוס:")
+    ) {
+      return;
+    }
+
+    const room = normalizeReportRoom(getReportCell(row, headerMap, ["חדר"]));
+    const arrivalDate = parseReportDate(getReportCell(row, headerMap, ["הגעה"]));
+    const departureDate = parseReportDate(getReportCell(row, headerMap, ["יציאה"]));
+    const people = normalizeReportText(getReportCell(row, headerMap, ["כמות אנשים"]));
+    if (!room || !arrivalDate || !departureDate || !people) return;
+
+    const firstName = normalizeReportText(getReportCell(row, headerMap, ["שם פרטי"]));
+    const lastName = normalizeReportText(getReportCell(row, headerMap, ["שם משפחה"]));
+    const phone = normalizeReportText(getReportCell(row, headerMap, ["טלפון"]));
+    const key = [
+      room,
+      firstName,
+      lastName,
+      phone.replace(/\D/g, ""),
+      arrivalDate,
+      departureDate,
+      people
+    ].join("|");
+
+    if (!uniqueRows.has(key)) {
+      uniqueRows.set(key, { row, headerMap });
+      return;
+    }
+
+    const current = uniqueRows.get(key);
+    const currentNote = cleanReportNote(getReportCell(current.row, current.headerMap, ["הערות"]));
+    const nextNote = cleanReportNote(getReportCell(row, headerMap, ["הערות"]));
+    if (!currentNote && nextNote) {
+      uniqueRows.set(key, { row, headerMap });
+    }
+  });
+
+  return [...uniqueRows.values()];
 }
 
 async function readReportSheet(file) {
@@ -827,10 +916,52 @@ function buildReportRecord({ row, headerMap }) {
   };
 }
 
+function buildMeshkReportRecord({ row, headerMap }) {
+  const room = normalizeReportRoom(getReportCell(row, headerMap, ["חדר"]));
+  const firstName = normalizeReportText(getReportCell(row, headerMap, ["שם פרטי"]));
+  const lastName = normalizeReportText(getReportCell(row, headerMap, ["שם משפחה"]));
+  const phone = normalizeReportText(getReportCell(row, headerMap, ["טלפון"]));
+  const arrivalDate = parseReportDate(getReportCell(row, headerMap, ["הגעה"]));
+  const departureDate = parseReportDate(getReportCell(row, headerMap, ["יציאה"]));
+  const nights = normalizeReportText(getReportCell(row, headerMap, ["לילות"]));
+  const reservationStatus = normalizeReportText(getReportCell(row, headerMap, ["סטטוס הזמנה"]));
+  const maintenanceState = normalizeReportText(getReportCell(row, headerMap, ["מצב תחזוקה"]));
+  const counts = parseGuestCounts(getReportCell(row, headerMap, ["כמות אנשים"]));
+  const extras = normalizeReportText(getReportCell(row, headerMap, ["תוספות"]));
+  const reportNote = cleanReportNote(getReportCell(row, headerMap, ["הערות"]));
+  const guestName = [firstName, lastName].filter(Boolean).join(" ");
+  const bookingSeed = [room, guestName, phone, arrivalDate, departureDate, counts.guests, counts.children, counts.babies].join("|");
+  const bookingId = `meshk-${stableReportId(bookingSeed)}`;
+  const baseNotes = [
+    guestName ? `אורח: ${guestName}` : "",
+    phone ? `טלפון: ${phone}` : "",
+    nights ? `שהות: ${nights} לילות` : "",
+    reservationStatus ? `סטטוס: ${reservationStatus}` : "",
+    maintenanceState && maintenanceState !== "אישור" ? `מצב: ${maintenanceState}` : "",
+    extras ? `תוספות: ${extras}` : "",
+    reportNote
+  ].filter(Boolean).join(" · ");
+
+  return {
+    bookingId,
+    room,
+    arrivalDate,
+    departureDate,
+    guestName,
+    reportNote,
+    baseNotes,
+    counts,
+    isMaintenance: false
+  };
+}
+
 function buildReportAnalysis(reportSheetRows, currentRows) {
-  const reportRows = extractReportRows(reportSheetRows, ["מספר הזמנה", "תאריך הגעה", "תאריך עזיבה"]);
+  const isMeshkReport = isMeshkReportSheet(reportSheetRows);
+  const reportRows = isMeshkReport
+    ? extractMeshkReportRows(reportSheetRows)
+    : extractReportRows(reportSheetRows, ["מספר הזמנה", "תאריך הגעה", "תאריך עזיבה"]);
   const reportRecords = reportRows
-    .map(buildReportRecord)
+    .map(isMeshkReport ? buildMeshkReportRecord : buildReportRecord)
     .filter((record) => record.bookingId && record.room && record.arrivalDate);
   const departureKeys = new Set(
     reportRecords
@@ -921,11 +1052,11 @@ function buildReportAnalysis(reportSheetRows, currentRows) {
 
 function extractMaintenanceReportRows(sheetRows) {
   const requiredHeaders = ["חדר", "תאריך התחלה", "תאריך סיום", "סוג סטטוס תחזוקה"];
-  const headerIndex = sheetRows.findIndex((row) => requiredHeaders.every((header) => row.map(normalizeReportText).includes(header)));
+  const headerIndex = findReportHeader(sheetRows, requiredHeaders);
   if (headerIndex === -1) {
     throw new Error("לא נמצאה שורת כותרות מתאימה בדוח האחזקה");
   }
-  const headerMap = new Map(sheetRows[headerIndex].map((cell, index) => [normalizeReportText(cell), index]).filter(([cell]) => cell));
+  const headerMap = makeReportHeaderMap(sheetRows[headerIndex]);
   return sheetRows.slice(headerIndex + 1)
     .map((row) => ({ row, headerMap }))
     .filter(({ row, headerMap }) => normalizeReportText(getReportCell(row, headerMap, ["חדר"])) && parseReportDate(getReportCell(row, headerMap, ["תאריך התחלה"])));
@@ -1035,7 +1166,7 @@ function maintenanceRoomCount(analysis) {
 
 async function analyzeReportFiles(files, currentRows) {
   if (!files.report && !files.maintenance) {
-    throw new Error("צריך לבחור דוח אופטימה או דוח אחזקה");
+    throw new Error("צריך לבחור דוח משק או דוח אחזקה");
   }
 
   let analysis = null;
@@ -1047,7 +1178,9 @@ async function analyzeReportFiles(files, currentRows) {
 
   if (files.maintenance) {
     const maintenanceSheetRows = await readReportSheet(files.maintenance);
-    analysis = buildMaintenanceAnalysis(maintenanceSheetRows, currentRows, analysis?.nextRows || []);
+    analysis = isMeshkReportSheet(maintenanceSheetRows)
+      ? buildReportAnalysis(maintenanceSheetRows, currentRows)
+      : buildMaintenanceAnalysis(maintenanceSheetRows, currentRows, analysis?.nextRows || []);
   }
 
   return analysis;
@@ -2170,7 +2303,7 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
 
       <div className="report-file-grid">
         <label className="report-file">
-          <span>דוח אופטימה</span>
+          <span>דוח משק</span>
           <input accept=".xlsx,.xls" type="file" onChange={(event) => setFile("report", event.target.files?.[0] || null)} />
           <strong>{files.report?.name || "לא נבחר קובץ"}</strong>
         </label>
@@ -3121,6 +3254,8 @@ function HoursPanel({ rows, saving, user, users = [], actions }) {
   const selectedMonthRows = visibleRows.filter((row) => monthKey(row.date) === selectedMonth);
   const monthTotal = selectedMonthRows.reduce((sum, row) => sum + (Number(row.totalHours) || 0), 0);
   const monthDays = new Set(selectedMonthRows.map((row) => String(row.date || "").slice(0, 10)).filter(Boolean)).size;
+  const isCurrentMonth = selectedMonth === monthKey(today());
+  const showDetailedRows = user.role === "admin" || isCurrentMonth;
   const total = hoursBetween(form.startTime, form.endTime);
 
   const submit = async (event) => {
@@ -3190,34 +3325,38 @@ function HoursPanel({ rows, saving, user, users = [], actions }) {
           </button>
         </form>
       )}
-      <ListBlock title={`רישומי שעות · ${formatMonthName(selectedMonth)}`} empty="אין שעות בחודש הזה">
-        {selectedMonthRows.slice().reverse().slice(0, 40).map((row) => (
-          user.role === "admin" ? (
-            <article className="list-item hours-row" key={row.id}>
-              <span>שם: {displayHourUserName(row, users)}</span>
-              <span>תאריך: <DateText>{formatDisplayDate(row.date)}</DateText></span>
-              <span>כניסה: <DateText>{row.startTime || "-"}</DateText></span>
-              <span>יציאה: <DateText>{row.endTime || "-"}</DateText></span>
-              <strong>סה"כ: {Number(row.totalHours || 0).toFixed(1)} שעות</strong>
-            </article>
-          ) : (
-            <article className="list-item" key={row.id}>
-              <div>
-                <strong>{row.userName}</strong>
-                <p>
-                  <DateText>{formatDisplayDate(row.date)}</DateText> · <DateText>{row.startTime}-{row.endTime}</DateText>
-                </p>
-              </div>
-              <div className="actions">
-                <span className="pill subtle">{row.totalHours} שעות</span>
-                <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.hours}:${row.id}`)} onClick={() => actions.remove(TABLES.hours, row.id)}>
-                  {actions.isPending(`remove:${TABLES.hours}:${row.id}`) ? "מוחק..." : "מחק"}
-                </button>
-              </div>
-            </article>
-          )
-        ))}
-      </ListBlock>
+      {showDetailedRows ? (
+        <ListBlock title={`רישומי שעות · ${formatMonthName(selectedMonth)}`} empty="אין שעות בחודש הזה">
+          {selectedMonthRows.slice().reverse().slice(0, 40).map((row) => (
+            user.role === "admin" ? (
+              <article className="list-item hours-row" key={row.id}>
+                <span>שם: {displayHourUserName(row, users)}</span>
+                <span>תאריך: <DateText>{formatDisplayDate(row.date)}</DateText></span>
+                <span>כניסה: <DateText>{row.startTime || "-"}</DateText></span>
+                <span>יציאה: <DateText>{row.endTime || "-"}</DateText></span>
+                <strong>סה"כ: {Number(row.totalHours || 0).toFixed(1)} שעות</strong>
+              </article>
+            ) : (
+              <article className="list-item" key={row.id}>
+                <div>
+                  <strong>{row.userName}</strong>
+                  <p>
+                    <DateText>{formatDisplayDate(row.date)}</DateText> · <DateText>{row.startTime}-{row.endTime}</DateText>
+                  </p>
+                </div>
+                <div className="actions">
+                  <span className="pill subtle">{row.totalHours} שעות</span>
+                  <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.hours}:${row.id}`)} onClick={() => actions.remove(TABLES.hours, row.id)}>
+                    {actions.isPending(`remove:${TABLES.hours}:${row.id}`) ? "מוחק..." : "מחק"}
+                  </button>
+                </div>
+              </article>
+            )
+          ))}
+        </ListBlock>
+      ) : (
+        <div className="summary-line">מוצג סיכום בלבד לחודש קודם. פירוט השעות מוסתר מהממשק.</div>
+      )}
     </section>
   );
 }
