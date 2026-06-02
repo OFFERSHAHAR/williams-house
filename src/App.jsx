@@ -117,6 +117,7 @@ const REPORT_FILE_RULES = {
 };
 const REPORT_EVENT_LABELS = {
   arrival: "כניסה",
+  maintenance_stay: "אחזקה",
   owner_stay: "שהיית בעלים",
   swap: "החלפה",
   departure: "עזיבה",
@@ -173,6 +174,32 @@ function formatDateInAppZone(date) {
 
 function monthKey(date) {
   return dateKey(date || today()).slice(0, 7);
+}
+
+function daysBetweenDateKeys(startValue, endValue) {
+  const start = dateKey(startValue);
+  const end = dateKey(endValue);
+  if (!start || !end) return 0;
+  const startParts = start.split("-").map(Number);
+  const endParts = end.split("-").map(Number);
+  if (startParts.length !== 3 || endParts.length !== 3 || startParts.some(Number.isNaN) || endParts.some(Number.isNaN)) return 0;
+  const startUtc = Date.UTC(startParts[0], startParts[1] - 1, startParts[2]);
+  const endUtc = Date.UTC(endParts[0], endParts[1] - 1, endParts[2]);
+  return Math.max(0, Math.round((endUtc - startUtc) / 86400000));
+}
+
+function stayDetails(row) {
+  const start = dateKey(row?.arrivalDate);
+  const end = dateKey(row?.departureDate);
+  if (!start && !end) return "";
+  const days = daysBetweenDateKeys(start, end);
+  const parts = [
+    start ? `כניסה ${formatDisplayDate(start)}` : "",
+    end ? `יציאה ${formatDisplayDate(end)}` : "",
+    days ? `${days} לילות` : "",
+    days ? `${days * 24} שעות` : ""
+  ];
+  return parts.filter(Boolean).join(" · ");
 }
 
 function displayValue(value) {
@@ -283,6 +310,11 @@ function isOwnerStayText(value) {
   return /בעלים|בעל הבית|משפחה|חברים|אורח פרטי|כניסת בעלים|שהיית בעלים|owner|family|friends/.test(text);
 }
 
+function isMaintenanceStayText(value) {
+  const text = normalizeReportText(value).toLowerCase();
+  return /תחזוקה|אחזקה|maintenance/.test(text);
+}
+
 function isBlockingReportRow(row) {
   return reportEventType(row) === "block";
 }
@@ -316,7 +348,7 @@ function reportEventType(row) {
 
 function isArrivalEvent(row) {
   const type = reportEventType(row);
-  return type === "arrival" || type === "owner_stay" || type === "swap";
+  return type === "arrival" || type === "maintenance_stay" || type === "owner_stay" || type === "swap";
 }
 
 function isPureArrivalEvent(row) {
@@ -364,7 +396,7 @@ function reportRangeRows(rows) {
 
   const scoreRangeRow = (row) => {
     const type = reportEventType(row);
-    const typeScore = { block: 50, swap: 45, owner_stay: 42, arrival: 40, departure: 30 }[type] || 0;
+    const typeScore = { block: 50, swap: 45, maintenance_stay: 43, owner_stay: 42, arrival: 40, departure: 30 }[type] || 0;
     return typeScore +
       (row.completedAt ? 8 : 0) +
       (row.gardenDoneAt ? 4 : 0) +
@@ -404,6 +436,22 @@ function isCoveredByMaintenanceReportRange(row, maintenanceRows) {
     });
 }
 
+function reportRowOverlapsMonths(row, months) {
+  if (!months?.size) return false;
+  const startDate = dateKey(row?.arrivalDate || row?.date);
+  const endDate = dateKey(row?.departureDate || row?.date) || startDate;
+  if (!startDate || !endDate) return false;
+
+  let cursor = startDate;
+  for (let i = 0; i < 120 && cursor <= endDate; i += 1) {
+    if (months.has(monthKey(cursor))) return true;
+    if (cursor === endDate) break;
+    cursor = addDays(cursor, 1);
+  }
+
+  return false;
+}
+
 function vacantRoomsForDate(date, rows) {
   const cleanRows = filterStaleLegacyArrivalRows(rows);
   const rangeRows = reportRangeRows(cleanRows);
@@ -413,7 +461,7 @@ function vacantRoomsForDate(date, rows) {
       .filter((row) => dateKey(row?.date || row?.arrivalDate) === date)
       .filter((row) => {
         const type = reportEventType(row);
-        return type === "arrival" || type === "owner_stay" || type === "swap" || type === "block" || isMaintenanceReportTurnover(row);
+        return type === "arrival" || type === "maintenance_stay" || type === "owner_stay" || type === "swap" || type === "block" || isMaintenanceReportTurnover(row);
       })
       .map((row) => String(row.room || "").trim())
       .filter(Boolean)
@@ -508,7 +556,7 @@ function occupiedQuietRoomsForDate(date, rows, vacantRooms = []) {
       .filter((row) => dateKey(row?.date || row?.arrivalDate) === date)
       .filter((row) => {
         const type = reportEventType(row);
-        return type === "arrival" || type === "owner_stay" || type === "swap" || type === "departure" || type === "block" || isMaintenanceReportTurnover(row);
+        return type === "arrival" || type === "maintenance_stay" || type === "owner_stay" || type === "swap" || type === "departure" || type === "block" || isMaintenanceReportTurnover(row);
       })
       .map((row) => String(row.room || "").trim())
       .filter(Boolean)
@@ -527,7 +575,7 @@ function occupiedQuietRoomsForDate(date, rows, vacantRooms = []) {
 
 function isGardenScheduleEvent(row) {
   const type = reportEventType(row);
-  return type === "arrival" || type === "swap" || type === "owner_stay";
+  return type === "arrival" || type === "maintenance_stay" || type === "swap" || type === "owner_stay";
 }
 
 function activeStayForRoomDate(room, date, rows) {
@@ -585,7 +633,7 @@ function roomDateKey(row) {
 
 function isConfirmedArrivalLikeEvent(row) {
   const type = String(row?.eventType || "").trim();
-  if (type === "arrival" || type === "swap") return true;
+  if (type === "arrival" || type === "maintenance_stay" || type === "swap") return true;
   return row?.isOccupied === true || row?.isOccupied === "TRUE" || row?.isOccupied === "true";
 }
 
@@ -819,7 +867,8 @@ function mergeScheduleListRows(rows) {
 }
 
 function reportEventClass(row) {
-  return `event-${reportEventType(row)}`;
+  const type = reportEventType(row);
+  return `event-${type === "maintenance_stay" ? "swap" : type}`;
 }
 
 function reportEventLabel(row) {
@@ -1170,6 +1219,7 @@ function buildMeshkReportRecord({ row, headerMap }) {
   const reservationStatus = normalizeReportText(getReportCell(row, headerMap, ["סטטוס הזמנה"]));
   const counts = parseGuestCounts(getReportCell(row, headerMap, ["כמות אנשים"]));
   const extras = normalizeReportText(getReportCell(row, headerMap, ["תוספות"]));
+  const maintenanceState = normalizeReportText(getReportCell(row, headerMap, ["מצב תחזוקה", "סוג סטטוס תחזוקה", "מצב"]));
   const reportNote = cleanReportNote(getReportCell(row, headerMap, ["הערות"]));
   const guestName = [firstName, lastName].filter(Boolean).join(" ");
   const bookingSeed = [room, guestName, phone, arrivalDate, departureDate, counts.guests, counts.children, counts.babies].join("|");
@@ -1179,6 +1229,7 @@ function buildMeshkReportRecord({ row, headerMap }) {
     phone ? `טלפון: ${phone}` : "",
     nights ? `שהות: ${nights} לילות` : "",
     reservationStatus ? `סטטוס: ${reservationStatus}` : "",
+    maintenanceState ? `מצב: ${maintenanceState}` : "",
     extras ? `תוספות: ${extras}` : "",
     reportNote
   ].filter(Boolean).join(" · ");
@@ -1192,8 +1243,34 @@ function buildMeshkReportRecord({ row, headerMap }) {
     reportNote,
     baseNotes,
     counts,
-    isMaintenance: false
+    isMaintenance: isMaintenanceStayText(maintenanceState),
+    maintenanceState
   };
+}
+
+function reportRecordPriority(record) {
+  return (record?.isMaintenance ? 100 : 0) +
+    (record?.reportNote ? 5 : 0) +
+    (record?.baseNotes ? 1 : 0);
+}
+
+function uniqueReportRecords(records) {
+  const byBooking = new Map();
+
+  records.forEach((record) => {
+    const key = record.bookingId || [
+      record.room,
+      record.arrivalDate,
+      record.departureDate,
+      record.guestName
+    ].join("|");
+    const current = byBooking.get(key);
+    if (!current || reportRecordPriority(record) > reportRecordPriority(current)) {
+      byBooking.set(key, record);
+    }
+  });
+
+  return [...byBooking.values()];
 }
 
 function buildReportAnalysis(reportSheetRows, currentRows) {
@@ -1202,9 +1279,11 @@ function buildReportAnalysis(reportSheetRows, currentRows) {
   const reportRows = isMeshkReport
     ? extractMeshkReportRows(reportSheetRows)
     : extractReportRows(reportSheetRows, ["מספר הזמנה", "תאריך הגעה", "תאריך עזיבה"]);
-  const reportRecords = reportRows
-    .map(isMeshkReport ? buildMeshkReportRecord : buildReportRecord)
-    .filter((record) => record.bookingId && record.room && record.arrivalDate);
+  const reportRecords = uniqueReportRecords(
+    reportRows
+      .map(isMeshkReport ? buildMeshkReportRecord : buildReportRecord)
+      .filter((record) => record.bookingId && record.room && record.arrivalDate)
+  );
   const departureKeys = new Set(
     reportRecords
       .filter((record) => record.departureDate)
@@ -1235,11 +1314,11 @@ function buildReportAnalysis(reportSheetRows, currentRows) {
     if (record.isMaintenance) {
       return [{
         ...shared,
-        id: `${REPORT_TURNOVER_PREFIX}block-${record.bookingId}`,
+        id: `${REPORT_TURNOVER_PREFIX}maintstay-${record.bookingId}`,
         date: record.arrivalDate,
-        eventType: "block",
+        eventType: "maintenance_stay",
         isOccupied: false,
-        notes: [record.baseNotes, "חדר חסום / תחזוקה"].filter(Boolean).join(" · ")
+        notes: [record.baseNotes, "אחזקה / תחזוקה"].filter(Boolean).join(" · ")
       }];
     }
 
@@ -1264,7 +1343,7 @@ function buildReportAnalysis(reportSheetRows, currentRows) {
   const affectedMonths = new Set(reportNextRows.map((row) => monthKey(row.date)).filter(Boolean));
   const keptMaintenanceRows = currentRows
     .filter(isMaintenanceReportTurnover)
-    .filter((row) => affectedMonths.has(monthKey(row.date)));
+    .filter((row) => reportRowOverlapsMonths(row, affectedMonths));
   const visibleReportRows = reportNextRows.filter((row) => !isCoveredByMaintenanceReportRange(row, keptMaintenanceRows));
   const nextRows = uniqueReportEvents([...visibleReportRows, ...keptMaintenanceRows]);
 
@@ -1540,6 +1619,7 @@ function turnoverDetails(row) {
   return [
     row.room || "חדר",
     formatDisplayDate(row.date),
+    stayDetails(row),
     `${row.guests || 0} אורחים`,
     row.children ? `${row.children} ילדים` : "",
     row.babies ? `${row.babies} תינוקות` : "",
@@ -2830,6 +2910,7 @@ function ReportsImportPanel({ rows, reportSync = [], user, actions }) {
                     <DateText>{formatDisplayDate(row.date)}</DateText> · {row.guests || 0} אורחים
                     {row.children ? ` · ${row.children} ילדים` : ""}
                     {row.babies ? ` · ${row.babies} תינוקות` : ""}
+                    {stayDetails(row) ? ` · ${stayDetails(row)}` : ""}
                     {row.isOccupied ? " · החלפה" : ""}
                     {row.notes ? ` · ${row.notes}` : ""}
                   </p>
@@ -3032,6 +3113,7 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                           {isDepartureEvent(row) ? "עזיבה" : `${row.guests || 0} אורחים`}
                           {row.children ? ` · ${row.children} ילדים` : ""}
                           {row.babies ? ` · ${row.babies} תינוקות` : ""}
+                          {stayDetails(row) ? ` · ${stayDetails(row)}` : ""}
                           {row.isReturning ? " · לקוח חוזר" : " · לקוח חדש"}
                           {row.isOccupied ? " · החלפה" : ""}
                         </p>
