@@ -72,6 +72,7 @@ const isDone = (row) => row.status === "done" || row.status === "completed";
 const isPurchased = (row) => row.status === "purchased";
 const sameText = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
 const userDisplayName = (user) => user?.display || user?.username || "";
+const isYifatUser = (user) => sameText(user?.username, "ifat") || sameText(user?.display, "יפעת");
 const isUnread = (row) => row.read !== true && row.read !== "TRUE";
 const isNotificationForUser = (row, user) =>
   Boolean(user) && (sameText(row.for, user.username) || sameText(row.for, user.role) || sameText(row.for, "all"));
@@ -110,6 +111,10 @@ const ROOM_NUMBER_LABELS = {
 const ONE_SIGNAL_APP_ID = "46062f6a-d7a8-4714-8765-bac63a2e3bc5";
 const REPORT_TURNOVER_PREFIX = "report-";
 const REPORT_MAINTENANCE_PREFIX = `${REPORT_TURNOVER_PREFIX}maintenance-`;
+const REPORT_FILE_RULES = {
+  report: { label: "דוח משק", requiredName: "משק" },
+  maintenance: { label: "דוח אחזקה", requiredName: "אחזקה" }
+};
 const REPORT_EVENT_LABELS = {
   arrival: "כניסה",
   owner_stay: "שהיית בעלים",
@@ -278,6 +283,10 @@ function isOwnerStayText(value) {
   return /בעלים|בעל הבית|משפחה|חברים|אורח פרטי|כניסת בעלים|שהיית בעלים|owner|family|friends/.test(text);
 }
 
+function isBlockingReportRow(row) {
+  return reportEventType(row) === "block";
+}
+
 function reportBookingId(row) {
   const direct = String(row?.bookingId || "").trim();
   if (direct) return direct;
@@ -379,6 +388,22 @@ function reportRangeRows(rows) {
   return [...byRangeKey.values()];
 }
 
+function isCoveredByMaintenanceReportRange(row, maintenanceRows) {
+  if (isMaintenanceReportTurnover(row)) return false;
+  const room = String(row?.room || "").trim();
+  const date = dateKey(row?.date);
+  if (!room || !date) return false;
+
+  return reportRangeRows(maintenanceRows)
+    .filter((item) => isMaintenanceReportTurnover(item))
+    .filter((item) => !isBlockingReportRow(item))
+    .some((item) => {
+      const startDate = dateKey(item.arrivalDate || item.date);
+      const endDate = dateKey(item.departureDate || item.date);
+      return String(item.room || "").trim() === room && startDate && endDate && startDate <= date && date <= endDate;
+    });
+}
+
 function vacantRoomsForDate(date, rows) {
   const cleanRows = filterStaleLegacyArrivalRows(rows);
   const rangeRows = reportRangeRows(cleanRows);
@@ -408,7 +433,7 @@ function vacantRoomsForDate(date, rows) {
   const blockedRooms = new Set(
     rangeRows
       .filter((row) => {
-        if (!isMaintenanceReportTurnover(row) && reportEventType(row) !== "block") return false;
+        if (!isBlockingReportRow(row)) return false;
         const startDate = dateKey(row.arrivalDate || row.date);
         const endDate = dateKey(row.departureDate || row.date);
         return startDate <= date && date < endDate;
@@ -488,7 +513,7 @@ function occupiedQuietRoomsForDate(date, rows, vacantRooms = []) {
       .map((row) => String(row.room || "").trim())
       .filter(Boolean)
   );
-  const rangeRows = reportRangeRows(cleanRows).filter((row) => reportEventType(row) !== "block" && !isMaintenanceReportTurnover(row));
+  const rangeRows = reportRangeRows(cleanRows).filter((row) => !isBlockingReportRow(row));
 
   return BOOKING_ROOMS.filter((room) => {
     if (sameDayActiveRooms.has(room) || vacantRoomSet.has(room)) return false;
@@ -511,10 +536,7 @@ function activeStayForRoomDate(room, date, rows) {
 
   return reportRangeRows(filterStaleLegacyArrivalRows(rows))
     .filter((row) => String(row.room || "").trim() === cleanRoom)
-    .filter((row) => {
-      const type = reportEventType(row);
-      return type !== "block" && !isMaintenanceReportTurnover(row);
-    })
+    .filter((row) => !isBlockingReportRow(row))
     .filter((row) => {
       const arrivalDate = dateKey(row.arrivalDate);
       const departureDate = dateKey(row.departureDate);
@@ -546,7 +568,7 @@ function gardenScheduleRowsForDate(date, rows) {
   const todayRows = cleanRows
     .filter((row) => dateKey(row.date) === date && !row.gardenDone)
     .filter((row) => isGardenScheduleEvent(row))
-    .filter((row) => !isMaintenanceReportTurnover(row) && reportEventType(row) !== "block");
+    .filter((row) => !isBlockingReportRow(row));
 
   return mergeScheduleListRows(uniqueReportEvents(todayRows))
     .filter((row) => isGardenScheduleEvent(row.editRow || row))
@@ -802,7 +824,6 @@ function reportEventClass(row) {
 
 function reportEventLabel(row) {
   if (reportEventType(row) === "owner_stay") return "שהיית בעלים";
-  if (isMaintenanceReportTurnover(row)) return "אחזקה";
   if (reportEventType(row) === "block") return "אחזקה";
   return REPORT_EVENT_LABELS[reportEventType(row)] || "כניסה";
 }
@@ -848,10 +869,52 @@ function parseGuestCounts(value) {
   };
 }
 
+function parseMaintenanceGuestCounts(value) {
+  const text = normalizeReportText(value);
+  const slash = text.match(/(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)/);
+  if (slash) {
+    return {
+      guests: Number(slash[1]) || 0,
+      children: Number(slash[2]) || 0,
+      babies: Number(slash[3]) || 0
+    };
+  }
+
+  const guestMatch = text.match(/(\d+)\s*(?:אורחים|אנשים|מבוגרים|מבוגר)/);
+  const childMatch = text.match(/(\d+)\s*(?:ילדים|ילד)/);
+  const babyMatch = text.match(/(\d+)\s*(?:תינוקות|תינוק)/);
+  const inferredCouple = !guestMatch && /[\u0590-\u05ff]+\s+ו[\u0590-\u05ff]+/.test(text) ? 2 : 0;
+
+  return {
+    guests: guestMatch ? Number(guestMatch[1]) || 0 : inferredCouple,
+    children: childMatch ? Number(childMatch[1]) || 0 : 0,
+    babies: babyMatch ? Number(babyMatch[1]) || 0 : 0
+  };
+}
+
 function cleanReportNote(value) {
-  const text = normalizeReportText(value).replace(/<[^>]+>/g, " ");
-  if (!text || /no note/i.test(text)) return "";
-  return text.replace(/^guest node:\s*/i, "").trim();
+  const raw = String(value || "");
+  const parts = [...raw.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+    .map((match) => normalizeReportText(match[1].replace(/<[^>]+>/g, " ")))
+    .filter(Boolean);
+  return parts.join(" · ");
+}
+
+function validateReportFileName(key, file) {
+  if (!file) return "";
+  const rule = REPORT_FILE_RULES[key];
+  if (!rule) return "סוג דוח לא מוכר";
+  const name = normalizeReportText(file.name).replace(/\.[^.]+$/, "");
+  return name.includes(rule.requiredName)
+    ? ""
+    : `${rule.label} חייב להיות קובץ שבשם שלו מופיעה המילה ${rule.requiredName}`;
+}
+
+function validateReportFiles(files) {
+  const errors = Object.entries(files)
+    .map(([key, file]) => validateReportFileName(key, file))
+    .filter(Boolean);
+  if (errors.length) throw new Error(errors.join(" · "));
 }
 
 function getReportCell(row, headerMap, names) {
@@ -956,6 +1019,101 @@ function extractMeshkReportRows(sheetRows) {
   return [...uniqueRows.values()];
 }
 
+function emptyReportValidation() {
+  return { duplicates: [], invalidRows: [] };
+}
+
+function mergeReportValidation(...items) {
+  return items.reduce((acc, item) => ({
+    duplicates: [...acc.duplicates, ...(item?.duplicates || [])],
+    invalidRows: [...acc.invalidRows, ...(item?.invalidRows || [])]
+  }), emptyReportValidation());
+}
+
+function reportIssueLabel(issue) {
+  return [
+    issue.source,
+    issue.row ? `שורה ${issue.row}` : "",
+    issue.room,
+    issue.date,
+    issue.message
+  ].filter(Boolean).join(" · ");
+}
+
+function collectMeshkReportValidation(sheetRows) {
+  const headerIndex = findReportHeader(sheetRows, ["חדר", "הגעה", "יציאה", "כמות אנשים"]);
+  if (headerIndex === -1) return emptyReportValidation();
+
+  const headerMap = makeReportHeaderMap(sheetRows[headerIndex]);
+  const seen = new Map();
+  const duplicates = [];
+  const invalidRows = [];
+
+  sheetRows.slice(headerIndex + 1).forEach((row, offset) => {
+    const sheetRowNumber = headerIndex + offset + 2;
+    const firstCell = normalizeReportText(row[0]);
+    if (
+      !firstCell ||
+      firstCell === "חדר" ||
+      firstCell.startsWith("משק ") ||
+      firstCell.startsWith("תאריך:") ||
+      firstCell.startsWith("מלון:") ||
+      firstCell.startsWith("סטטוס:")
+    ) {
+      return;
+    }
+
+    const room = normalizeReportRoom(getReportCell(row, headerMap, ["חדר"]));
+    const arrivalDate = parseReportDate(getReportCell(row, headerMap, ["הגעה"]));
+    const departureDate = parseReportDate(getReportCell(row, headerMap, ["יציאה"]));
+    const people = normalizeReportText(getReportCell(row, headerMap, ["כמות אנשים"]));
+    const firstName = normalizeReportText(getReportCell(row, headerMap, ["שם פרטי"]));
+    const lastName = normalizeReportText(getReportCell(row, headerMap, ["שם משפחה"]));
+    const phone = normalizeReportText(getReportCell(row, headerMap, ["טלפון"]));
+    const hasAnyData = room || arrivalDate || departureDate || people || firstName || lastName || phone;
+
+    if (hasAnyData && (!room || !arrivalDate || !departureDate || !people)) {
+      invalidRows.push({
+        source: "דוח משק",
+        row: sheetRowNumber,
+        room,
+        date: arrivalDate || departureDate,
+        message: "חסר חדר, כניסה, יציאה או כמות אורחים"
+      });
+      return;
+    }
+
+    if (!hasAnyData) return;
+
+    const key = [
+      room,
+      firstName,
+      lastName,
+      phone.replace(/\D/g, ""),
+      arrivalDate,
+      departureDate,
+      people
+    ].join("|");
+    const previousRow = seen.get(key);
+
+    if (previousRow) {
+      duplicates.push({
+        source: "דוח משק",
+        row: sheetRowNumber,
+        duplicateOf: previousRow,
+        room,
+        date: arrivalDate,
+        message: `כפילות מול שורה ${previousRow}`
+      });
+      return;
+    }
+
+    seen.set(key, sheetRowNumber);
+  });
+
+  return { duplicates, invalidRows };
+}
+
 async function readReportSheet(file) {
   const XLSX = await import("xlsx");
   const buffer = await file.arrayBuffer();
@@ -1010,7 +1168,6 @@ function buildMeshkReportRecord({ row, headerMap }) {
   const departureDate = parseReportDate(getReportCell(row, headerMap, ["יציאה"]));
   const nights = normalizeReportText(getReportCell(row, headerMap, ["לילות"]));
   const reservationStatus = normalizeReportText(getReportCell(row, headerMap, ["סטטוס הזמנה"]));
-  const maintenanceState = normalizeReportText(getReportCell(row, headerMap, ["מצב תחזוקה"]));
   const counts = parseGuestCounts(getReportCell(row, headerMap, ["כמות אנשים"]));
   const extras = normalizeReportText(getReportCell(row, headerMap, ["תוספות"]));
   const reportNote = cleanReportNote(getReportCell(row, headerMap, ["הערות"]));
@@ -1022,7 +1179,6 @@ function buildMeshkReportRecord({ row, headerMap }) {
     phone ? `טלפון: ${phone}` : "",
     nights ? `שהות: ${nights} לילות` : "",
     reservationStatus ? `סטטוס: ${reservationStatus}` : "",
-    maintenanceState && maintenanceState !== "אישור" ? `מצב: ${maintenanceState}` : "",
     extras ? `תוספות: ${extras}` : "",
     reportNote
   ].filter(Boolean).join(" · ");
@@ -1041,6 +1197,7 @@ function buildMeshkReportRecord({ row, headerMap }) {
 }
 
 function buildReportAnalysis(reportSheetRows, currentRows) {
+  const validation = collectMeshkReportValidation(reportSheetRows);
   const isMeshkReport = isMeshkReportSheet(reportSheetRows);
   const reportRows = isMeshkReport
     ? extractMeshkReportRows(reportSheetRows)
@@ -1054,7 +1211,7 @@ function buildReportAnalysis(reportSheetRows, currentRows) {
       .map((record) => `${record.room}|${record.departureDate}`)
   );
 
-  const nextRows = reportRecords.flatMap((record) => {
+  const reportNextRows = reportRecords.flatMap((record) => {
     const isSwap = departureKeys.has(`${record.room}|${record.arrivalDate}`);
     const shared = {
       room: record.room,
@@ -1104,6 +1261,13 @@ function buildReportAnalysis(reportSheetRows, currentRows) {
     ].filter(Boolean);
   }).filter((row) => row.room && row.date);
 
+  const affectedMonths = new Set(reportNextRows.map((row) => monthKey(row.date)).filter(Boolean));
+  const keptMaintenanceRows = currentRows
+    .filter(isMaintenanceReportTurnover)
+    .filter((row) => affectedMonths.has(monthKey(row.date)));
+  const visibleReportRows = reportNextRows.filter((row) => !isCoveredByMaintenanceReportRange(row, keptMaintenanceRows));
+  const nextRows = uniqueReportEvents([...visibleReportRows, ...keptMaintenanceRows]);
+
   const previousReportRows = currentRows.filter(isReportTurnover);
   const previousById = new Map(previousReportRows.map((row) => [row.id, row]));
   const nextById = new Map(nextRows.map((row) => [row.id, row]));
@@ -1129,9 +1293,12 @@ function buildReportAnalysis(reportSheetRows, currentRows) {
       newRows: newRows.length,
       changedRows: changedRows.length,
       unchangedRows: unchangedRows.length,
-      removedRows: removedRows.length
+      removedRows: removedRows.length,
+      duplicateRows: validation.duplicates.length,
+      invalidRows: validation.invalidRows.length
     },
-    preview: [...newRows, ...changedRows].slice(0, 8)
+    preview: [...newRows, ...changedRows].slice(0, 8),
+    validation
   };
 }
 
@@ -1145,6 +1312,59 @@ function extractMaintenanceReportRows(sheetRows) {
   return sheetRows.slice(headerIndex + 1)
     .map((row) => ({ row, headerMap }))
     .filter(({ row, headerMap }) => normalizeReportText(getReportCell(row, headerMap, ["חדר"])) && parseReportDate(getReportCell(row, headerMap, ["תאריך התחלה"])));
+}
+
+function collectMaintenanceReportValidation(sheetRows) {
+  const requiredHeaders = ["חדר", "תאריך התחלה", "תאריך סיום", "סוג סטטוס תחזוקה"];
+  const headerIndex = findReportHeader(sheetRows, requiredHeaders);
+  if (headerIndex === -1) return emptyReportValidation();
+
+  const headerMap = makeReportHeaderMap(sheetRows[headerIndex]);
+  const seen = new Map();
+  const duplicates = [];
+  const invalidRows = [];
+
+  sheetRows.slice(headerIndex + 1).forEach((row, offset) => {
+    const sheetRowNumber = headerIndex + offset + 2;
+    const roomNumber = normalizeReportText(getReportCell(row, headerMap, ["חדר"]));
+    const startDate = parseReportDate(getReportCell(row, headerMap, ["תאריך התחלה"]));
+    const endDate = parseReportDate(getReportCell(row, headerMap, ["תאריך סיום"]));
+    const status = normalizeReportText(getReportCell(row, headerMap, ["סוג סטטוס תחזוקה"]));
+    const description = normalizeReportText(getReportCell(row, headerMap, ["תיאור"]));
+    const hasAnyData = roomNumber || startDate || endDate || status || description;
+
+    if (hasAnyData && (!roomNumber || !startDate || !endDate)) {
+      invalidRows.push({
+        source: "דוח אחזקה",
+        row: sheetRowNumber,
+        room: ROOM_NUMBER_LABELS[roomNumber] || roomNumber,
+        date: startDate || endDate,
+        message: "חסר חדר, תאריך התחלה או תאריך סיום"
+      });
+      return;
+    }
+
+    if (!hasAnyData) return;
+
+    const key = [roomNumber, startDate, endDate, status, description].join("|");
+    const previousRow = seen.get(key);
+
+    if (previousRow) {
+      duplicates.push({
+        source: "דוח אחזקה",
+        row: sheetRowNumber,
+        duplicateOf: previousRow,
+        room: ROOM_NUMBER_LABELS[roomNumber] || roomNumber,
+        date: startDate,
+        message: `כפילות מול שורה ${previousRow}`
+      });
+      return;
+    }
+
+    seen.set(key, sheetRowNumber);
+  });
+
+  return { duplicates, invalidRows };
 }
 
 function dateRangeDays(startDate, endDate) {
@@ -1161,6 +1381,7 @@ function dateRangeDays(startDate, endDate) {
 }
 
 function buildMaintenanceAnalysis(maintenanceSheetRows, currentRows, baseRows = []) {
+  const validation = collectMaintenanceReportValidation(maintenanceSheetRows);
   const maintenanceRows = extractMaintenanceReportRows(maintenanceSheetRows);
   const nextMaintenanceRows = maintenanceRows.flatMap(({ row, headerMap }) => {
     const roomNumber = normalizeReportText(getReportCell(row, headerMap, ["חדר"]));
@@ -1171,38 +1392,52 @@ function buildMaintenanceAnalysis(maintenanceSheetRows, currentRows, baseRows = 
     const description = normalizeReportText(getReportCell(row, headerMap, ["תיאור"]));
     const userName = normalizeReportText(getReportCell(row, headerMap, ["משתמש"]));
     const createdAt = parseReportDate(getReportCell(row, headerMap, ["תאריך יצירה"])) || nowIso();
-    const ownerStay = isOwnerStayText(`${status} ${description} ${userName}`);
+    const counts = parseMaintenanceGuestCounts(description);
+    const bookingId = `maintenance-${roomNumber}-${startDate}-${endDate}`;
     const notes = [
-      ownerStay ? "שהיית בעלים / משפחה / חברים" : "אחזקה",
-      status,
-      description ? `תיאור: ${description}` : "",
+      description ? `הערה: ${description}` : "",
+      status ? `סגירה ידנית: ${status}` : "",
       userName ? `עודכן על ידי: ${userName}` : ""
     ].filter(Boolean).join(" · ");
+    const isSwap = [...baseRows, ...currentRows].some((item) =>
+      String(item.room || "").trim() === room &&
+      isDepartureEvent(item) &&
+      dateKey(item.date) === startDate
+    );
 
-    return dateRangeDays(startDate, endDate).map((date) => ({
-      id: `${REPORT_MAINTENANCE_PREFIX}${roomNumber}-${date}`,
+    const arrivalRow = {
+      id: `${REPORT_MAINTENANCE_PREFIX}arrival-${roomNumber}-${startDate}-${endDate}`,
       room,
-      date,
-      guests: ownerStay ? 1 : 0,
-      children: 0,
-      babies: 0,
+      date: startDate,
+      ...counts,
       hasCrib: false,
       hasHighChair: false,
       notes,
       isReturning: false,
-      isOccupied: ownerStay,
-      status: ownerStay ? "pending" : "maintenance",
+      isOccupied: isSwap,
+      status: "pending",
       gardenDone: false,
       gardenDoneAt: "",
       createdAt,
       completedAt: "",
       reportSource: "report",
-      eventType: ownerStay ? "owner_stay" : "block",
-      bookingId: `maintenance-${roomNumber}-${startDate}-${endDate}`,
+      eventType: isSwap ? "swap" : "arrival",
+      bookingId,
       arrivalDate: startDate,
       departureDate: endDate,
-      reportMonth: monthKey(date)
-    }));
+      reportMonth: monthKey(startDate)
+    };
+
+    const departureRow = endDate && endDate !== startDate ? {
+      ...arrivalRow,
+      id: `${REPORT_MAINTENANCE_PREFIX}departure-${roomNumber}-${startDate}-${endDate}`,
+      date: endDate,
+      isOccupied: false,
+      eventType: "departure",
+      reportMonth: monthKey(endDate)
+    } : null;
+
+    return [arrivalRow, departureRow].filter(Boolean);
   });
 
   const affectedMonths = new Set(nextMaintenanceRows.map((row) => monthKey(row.date)).filter(Boolean));
@@ -1211,7 +1446,10 @@ function buildMaintenanceAnalysis(maintenanceSheetRows, currentRows, baseRows = 
     !isMaintenanceReportTurnover(row) &&
     affectedMonths.has(monthKey(row.date))
   );
-  const nextRows = uniqueReportEvents([...baseRows, ...keptReportRows, ...nextMaintenanceRows]);
+  const baseRowsWithoutMaintenance = baseRows.filter((row) => !isMaintenanceReportTurnover(row));
+  const reportRowsWithoutCoveredMaintenance = [...baseRowsWithoutMaintenance, ...keptReportRows]
+    .filter((row) => !isCoveredByMaintenanceReportRange(row, nextMaintenanceRows));
+  const nextRows = uniqueReportEvents([...reportRowsWithoutCoveredMaintenance, ...nextMaintenanceRows]);
   const previousReportRows = currentRows.filter(isReportTurnover).filter((row) => affectedMonths.has(monthKey(row.date)));
   const previousById = new Map(previousReportRows.map((row) => [row.id, row]));
   const nextById = new Map(nextRows.map((row) => [row.id, row]));
@@ -1237,9 +1475,12 @@ function buildMaintenanceAnalysis(maintenanceSheetRows, currentRows, baseRows = 
       newRows: newRows.length,
       changedRows: changedRows.length,
       unchangedRows: unchangedRows.length,
-      removedRows: removedRows.length
+      removedRows: removedRows.length,
+      duplicateRows: validation.duplicates.length,
+      invalidRows: validation.invalidRows.length
     },
-    preview: [...newRows, ...changedRows].slice(0, 8)
+    preview: [...newRows, ...changedRows].slice(0, 8),
+    validation
   };
 }
 
@@ -1253,22 +1494,45 @@ async function analyzeReportFiles(files, currentRows) {
   if (!files.report && !files.maintenance) {
     throw new Error("צריך לבחור דוח משק או דוח אחזקה");
   }
+  validateReportFiles(files);
 
   let analysis = null;
+  let validation = emptyReportValidation();
 
   if (files.report) {
     const reportSheetRows = await readReportSheet(files.report);
     analysis = buildReportAnalysis(reportSheetRows, currentRows);
+    validation = mergeReportValidation(validation, analysis.validation);
   }
 
   if (files.maintenance) {
     const maintenanceSheetRows = await readReportSheet(files.maintenance);
-    analysis = isMeshkReportSheet(maintenanceSheetRows)
+    const maintenanceAnalysis = isMeshkReportSheet(maintenanceSheetRows)
       ? buildReportAnalysis(maintenanceSheetRows, currentRows)
       : buildMaintenanceAnalysis(maintenanceSheetRows, currentRows, analysis?.nextRows || []);
+    validation = mergeReportValidation(validation, maintenanceAnalysis.validation);
+    analysis = {
+      ...maintenanceAnalysis,
+      validation,
+      summary: {
+        ...maintenanceAnalysis.summary,
+        duplicateRows: validation.duplicates.length,
+        invalidRows: validation.invalidRows.length
+      }
+    };
   }
 
-  return analysis;
+  if (!analysis) return analysis;
+
+  return {
+    ...analysis,
+    validation,
+    summary: {
+      ...analysis.summary,
+      duplicateRows: validation.duplicates.length,
+      invalidRows: validation.invalidRows.length
+    }
+  };
 }
 
 function turnoverDetails(row) {
@@ -1622,10 +1886,11 @@ export default function App() {
         requestedBy,
         message: summary?.message || `דחיפת דוחות על ידי ${requestedBy}`
       };
+      const affectedMonths = new Set(nextReportRows.map((row) => monthKey(row.date)).filter(Boolean));
       applyOptimisticData((current) => ({
         ...current,
         turnovers: [
-          ...(current.turnovers || []).filter((row) => !isReportTurnover(row)),
+          ...(current.turnovers || []).filter((row) => !isReportTurnover(row) || !affectedMonths.has(monthKey(row.date))),
           ...nextReportRows
         ]
       }));
@@ -1908,7 +2173,7 @@ function TurnoversPanel({ rows, reportSync = [], saving, user, actions }) {
   }
 
   if (user.role === "bookings") {
-    return <BookingTurnoversPanel rows={rows} reportSync={reportSync} saving={saving} actions={actions} />;
+    return <BookingTurnoversPanel rows={rows} reportSync={reportSync} saving={saving} user={user} actions={actions} />;
   }
 
   const roomOptions = getRoomOptions(rows);
@@ -2034,7 +2299,7 @@ function TurnoversPanel({ rows, reportSync = [], saving, user, actions }) {
   );
 }
 
-function BookingTurnoversPanel({ rows, reportSync = [], saving, actions }) {
+function BookingTurnoversPanel({ rows, reportSync = [], saving, user, actions }) {
   const roomOptions = getRoomOptions(rows);
   const [view, setView] = useState("calendar");
   const [form, setForm] = useState({
@@ -2269,7 +2534,7 @@ function BookingTurnoversPanel({ rows, reportSync = [], saving, actions }) {
           )}
         </>
       ) : view === "reports" ? (
-        <ReportsImportPanel rows={rows} reportSync={reportSync} actions={actions} />
+        <ReportsImportPanel rows={rows} reportSync={reportSync} user={user} actions={actions} />
       ) : (
         <>
           <div className="list-filters" aria-label="סינון חדרים">
@@ -2304,18 +2569,37 @@ function BookingTurnoversPanel({ rows, reportSync = [], saving, actions }) {
   );
 }
 
-function ReportsImportPanel({ rows, reportSync = [], actions }) {
+function ReportsImportPanel({ rows, reportSync = [], user, actions }) {
   const [files, setFiles] = useState({ report: null, maintenance: null });
   const [analysis, setAnalysis] = useState(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const canApproveReports = isYifatUser(user);
   const lastSync = reportSync
     .slice()
     .sort((a, b) => String(b.syncedAt || "").localeCompare(String(a.syncedAt || "")))[0];
-  const canApplyReports = Boolean(analysis && analysis.nextRows?.length);
+  const reportValidation = analysis?.validation || emptyReportValidation();
+  const hasBlockingReportErrors = Boolean(reportValidation.invalidRows.length);
+  const canApplyReports = Boolean(canApproveReports && analysis && analysis.nextRows?.length && !hasBlockingReportErrors);
+  const reportApprovalLocked = Boolean(analysis && !canApproveReports);
+
+  const cancelReportReview = () => {
+    setFiles({ report: null, maintenance: null });
+    setAnalysis(null);
+    setStatus("");
+    setError("");
+  };
 
   const setFile = (key, file) => {
+    const nameError = validateReportFileName(key, file);
+    if (nameError) {
+      setFiles((current) => ({ ...current, [key]: null }));
+      setAnalysis(null);
+      setError(nameError);
+      setStatus("");
+      return;
+    }
     setFiles((current) => ({ ...current, [key]: file }));
     setAnalysis(null);
     setError("");
@@ -2329,7 +2613,15 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
     try {
       const result = await analyzeReportFiles(files, rows);
       setAnalysis(result);
-      setStatus("הבדיקה הסתיימה");
+      const invalidCount = result?.validation?.invalidRows?.length || 0;
+      const duplicateCount = result?.validation?.duplicates?.length || 0;
+      if (invalidCount) {
+        setStatus(`הבדיקה הסתיימה · נמצאו ${invalidCount} שורות שגויות · אין שמירה לשיטס עד תיקון`);
+      } else if (duplicateCount) {
+        setStatus(`הבדיקה הסתיימה · נמצאו ${duplicateCount} כפילויות · הן לא ייכתבו פעמיים`);
+      } else {
+        setStatus("הבדיקה הסתיימה");
+      }
     } catch (err) {
       setError(err.message || String(err));
       setStatus("");
@@ -2340,6 +2632,14 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
 
   const applyToSheets = async () => {
     if (!analysis) return;
+    if (!canApproveReports) {
+      setError("רק יפעת יכולה לאשר שמירת דוחות לשיטס");
+      return;
+    }
+    if (hasBlockingReportErrors) {
+      setError("נמצאו שורות שגויות בדוח. אין שמירה לשיטס עד תיקון הדוח וטעינה מחדש");
+      return;
+    }
     setBusy(true);
     setError("");
     setStatus("שומר בשיטס...");
@@ -2362,6 +2662,11 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
       <div className="notice compact">
         אחרי בדיקת השינויים ואישור של יפעת, הדוחות נשמרים בשיטס ומעדכנים את כל היומנים.
       </div>
+      {!canApproveReports && (
+        <div className="notice error compact">
+          דוח יכול להיבדק כאן, אבל שמירה לשיטס נעולה. רק יפעת יכולה לאשר כתיבה.
+        </div>
+      )}
 
       <div className="report-summary">
         <div className="mini-metric">
@@ -2410,6 +2715,28 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
 
       {status && <div className="summary-line">{status}</div>}
       {error && <div className="notice error compact">{error}</div>}
+      {reportApprovalLocked && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="calendar-modal override-modal" role="dialog" aria-modal="true" aria-labelledby="report-lock-title" onClick={(event) => event.stopPropagation()}>
+            <div className="calendar-modal-head">
+              <button className="ghost" type="button" onClick={cancelReportReview}>בטל</button>
+              <div>
+                <span className="eyebrow">אישור דוחות</span>
+                <h3 id="report-lock-title">ממתין ליפעת</h3>
+              </div>
+            </div>
+            <div className="calendar-modal-list">
+              <article className="calendar-modal-item event-swap">
+                <strong>הדוחות נבדקו, אבל השמירה לשיטס נעולה</strong>
+                <p>רק יפעת יכולה לאשר כתיבה לשיטס. עד ביטול הבדיקה, המסך נשאר נעול כדי למנוע המשך עבודה על נתונים שלא אושרו.</p>
+              </article>
+            </div>
+            <div className="actions">
+              <button type="button" onClick={cancelReportReview}>בטל טעינה</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {analysis && (
         <>
@@ -2458,7 +2785,41 @@ function ReportsImportPanel({ rows, reportSync = [], actions }) {
               <span>יוסרו</span>
               <strong>{analysis.summary.removedRows}</strong>
             </div>
+            <div className="mini-metric">
+              <span>כפילויות</span>
+              <strong>{analysis.summary.duplicateRows || 0}</strong>
+            </div>
+            <div className="mini-metric">
+              <span>שגויות</span>
+              <strong>{analysis.summary.invalidRows || 0}</strong>
+            </div>
           </div>
+
+          {reportValidation.invalidRows.length > 0 && (
+            <ListBlock title="שורות שגויות" empty="">
+              {reportValidation.invalidRows.slice(0, 8).map((issue, index) => (
+                <article className="list-item report-preview event-departure" key={`invalid-${index}`}>
+                  <div>
+                    <strong>{issue.source || "דוח"} · אין שמירה לשיטס</strong>
+                    <p>{reportIssueLabel(issue)}</p>
+                  </div>
+                </article>
+              ))}
+            </ListBlock>
+          )}
+
+          {reportValidation.duplicates.length > 0 && (
+            <ListBlock title="כפילויות בדוח" empty="">
+              {reportValidation.duplicates.slice(0, 8).map((issue, index) => (
+                <article className="list-item report-preview event-swap" key={`duplicate-${index}`}>
+                  <div>
+                    <strong>{issue.source || "דוח"} · כפילות</strong>
+                    <p>{reportIssueLabel(issue)}</p>
+                  </div>
+                </article>
+              ))}
+            </ListBlock>
+          )}
 
           <ListBlock title="תצוגה מקדימה" empty="אין רשומות חדשות או משתנות">
             {analysis.preview.map((row) => (
