@@ -4373,16 +4373,10 @@ function OrderlyPanel({ rows, user, actions }) {
 
   return (
     <section className="panel orderly-panel">
-      <SectionHead title="עושים סדר" badge={`${extinguisherAlerts.length + irrigationAlerts.length} התראות`} />
+      <SectionHead title="עושים סדר" badge={`${irrigationAlerts.length} התראות`} />
 
-      {(extinguisherAlerts.length > 0 || irrigationAlerts.length > 0) && (
+      {irrigationAlerts.length > 0 && (
         <div className="orderly-alerts">
-          {extinguisherAlerts.map(({ row, days }) => (
-            <article className="orderly-alert danger-soft" key={`ext-alert-${row.id}`}>
-              <strong>{days < 0 ? "מטף פג תוקף" : "מטף לפני פקיעת תוקף"}</strong>
-              <p>{row.location} · {days < 0 ? `עברו ${Math.abs(days)} ימים` : `עוד ${days} ימים`} · תפוגה: <DateText>{formatDisplayDate(row.expiresAt)}</DateText></p>
-            </article>
-          ))}
           {irrigationAlerts.map(({ row, days }) => (
             <article className="orderly-alert purple-soft" key={`irr-alert-${row.id}`}>
               <div>
@@ -4398,31 +4392,6 @@ function OrderlyPanel({ rows, user, actions }) {
       )}
 
       <div className="orderly-forms">
-        <form className="form" onSubmit={addExtinguisher}>
-          <div className="form-title"><strong>מטפי כיבוי</strong></div>
-          <label>
-            מיקום
-            <input value={extinguisherForm.location} onChange={(event) => setExtinguisherForm({ ...extinguisherForm, location: event.target.value })} placeholder="לדוגמה: מחסן כלים" />
-          </label>
-          <div className="form-row">
-            <label>
-              תאריך מילוי
-              <input type="date" value={extinguisherForm.filledAt} onChange={(event) => setExtinguisherForm({ ...extinguisherForm, filledAt: event.target.value })} />
-            </label>
-            <label>
-              תאריך תפוגה
-              <input type="date" value={extinguisherForm.expiresAt} onChange={(event) => setExtinguisherForm({ ...extinguisherForm, expiresAt: event.target.value })} />
-            </label>
-          </div>
-          <label>
-            הערה
-            <input value={extinguisherForm.notes} onChange={(event) => setExtinguisherForm({ ...extinguisherForm, notes: event.target.value })} placeholder="אופציונלי" />
-          </label>
-          <button className="primary" disabled={actions.isPending(`add:${TABLES.orderly}`)} type="submit">
-            הוסף מטף
-          </button>
-        </form>
-
         <form className="form" onSubmit={addIrrigation}>
           <div className="form-title"><strong>מחשבי השקיה</strong></div>
           <label>
@@ -4463,28 +4432,6 @@ function OrderlyPanel({ rows, user, actions }) {
           </button>
         </form>
       </div>
-
-      <ListBlock title="מטפים במעקב" empty="אין מטפים במעקב">
-        {extinguishers.map((row) => {
-          const days = daysUntil(row.expiresAt);
-          return (
-            <article className={`list-item ${days !== null && days <= 30 ? "critical" : ""}`} key={row.id}>
-              <div>
-                <strong>{row.location}</strong>
-                <p>
-                  תפוגה: <DateText>{formatDisplayDate(row.expiresAt)}</DateText>
-                  {row.filledAt ? <> · מילוי: <DateText>{formatDisplayDate(row.filledAt)}</DateText></> : ""}
-                  {days !== null ? ` · ${days < 0 ? `פג לפני ${Math.abs(days)} ימים` : `עוד ${days} ימים`}` : ""}
-                  {row.notes ? ` · ${row.notes}` : ""}
-                </p>
-              </div>
-              <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.orderly}:${row.id}`)} onClick={() => actions.remove(TABLES.orderly, row.id)}>
-                מחק
-              </button>
-            </article>
-          );
-        })}
-      </ListBlock>
 
       <ListBlock title="מחשבי השקיה" empty="אין מחשבי השקיה במעקב">
         {irrigationControllers.map((row) => {
