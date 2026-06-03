@@ -154,10 +154,14 @@ function doGet(e) {
 function handleApiGet(e) {
   try {
     if (e.parameter.action === 'read') {
-      cleanupExpiredMessages();
       const result = {};
+      const requestedTables = String(e.parameter.tables || '')
+        .split(',')
+        .map(name => String(name || '').trim())
+        .filter(name => SHEETS[name]);
+      const tablesToRead = requestedTables.length ? requestedTables : Object.keys(SHEETS);
 
-      Object.keys(SHEETS).forEach(name => {
+      tablesToRead.forEach(name => {
         result[name] = readSheet(name);
       });
 

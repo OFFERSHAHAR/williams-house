@@ -44,6 +44,16 @@ const tabLabels = {
   pool: "בריכה"
 };
 
+const readTablesByRole = {
+  guest: ["users"],
+  admin: Object.keys(emptyData),
+  bookings: ["users", "turnovers", "notifications", "messages", "report_sync"],
+  maint: ["users", "maintenance", "turnovers", "notifications", "messages", "orderly", "shopping", "hours", "pool_logs", "pool_equipment"],
+  house: ["users", "turnovers", "notifications", "messages", "shopping", "hours"]
+};
+
+const readTablesForRole = (role) => readTablesByRole[role] || readTablesByRole.guest;
+
 const today = () => dateKey(new Date());
 const oneHourFromNow = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
 const BACKGROUND_REFRESH_MS = 300000;
@@ -1726,7 +1736,7 @@ async function initOneSignalSubscription(user) {
 export default function App() {
   const [cachedSnapshot] = useState(() => readCachedData());
   const [data, setData] = useState(() => ({ ...emptyData, ...(cachedSnapshot?.data || {}) }));
-  const [loading, setLoading] = useState(!cachedSnapshot?.data);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [scheduleNotice, setScheduleNotice] = useState(null);
   const [pendingActions, setPendingActions] = useState(() => new Set());
@@ -1746,15 +1756,15 @@ export default function App() {
   });
   const [tab, setTab] = useState("dashboard");
 
-  const loadData = async ({ force = false } = {}) => {
+  const loadData = async ({ force = false, role } = {}) => {
     if (refreshInFlightRef.current) return refreshInFlightRef.current;
     if (!force && lastRefreshAtRef.current && Date.now() - lastRefreshAtRef.current < MIN_REFRESH_GAP_MS) {
       return data;
     }
 
     const refresh = (async () => {
-      const nextData = await readAll();
-      const normalized = { ...emptyData, ...nextData };
+      const nextData = await readAll(readTablesForRole(role || user?.role));
+      const normalized = { ...emptyData, ...data, ...nextData };
       const changes = findTurnoverChanges(previousTurnoversRef.current, normalized.turnovers);
       if (changes.length > 0) {
         const signature = scheduleNoticeSignature(changes);
@@ -2055,6 +2065,7 @@ export default function App() {
     localStorage.setItem("williams_user", JSON.stringify(found));
     setUser(found);
     setTab((tabSets[found.role] || tabSets.admin)[0]);
+    loadData({ force: true, role: found.role }).catch((err) => setError(err.message || String(err)));
     initOneSignalSubscription(found);
     return true;
   };
@@ -4254,12 +4265,23 @@ function OrderlyPanel({ rows, user, actions }) {
   const [extinguisherForm, setExtinguisherForm] = useState({ location: "", filledAt: "", expiresAt: "", notes: "" });
   const [irrigationForm, setIrrigationForm] = useState({ location: "", batteryChangedAt: "", scheduleCreatedAt: "", notes: "" });
   const [inventoryText, setInventoryText] = useState("");
+  const [inventorySearchOpen, setInventorySearchOpen] = useState(false);
+  const [inventoryQuery, setInventoryQuery] = useState("");
   const activeRows = rows.filter((row) => row.status !== "archived");
   const extinguishers = activeRows.filter((row) => row.type === "extinguisher");
   const irrigationControllers = activeRows.filter((row) => row.type === "irrigation");
   const inventoryRows = activeRows
     .filter((row) => row.type === "inventory")
     .sort((a, b) => String(b.createdAt || b.id || "").localeCompare(String(a.createdAt || a.id || "")));
+  const cleanInventoryQuery = normalizeReportText(inventoryQuery).toLowerCase();
+  const matchingInventoryRows = cleanInventoryQuery
+    ? inventoryRows.filter((row) => normalizeReportText([
+      row.name,
+      row.location,
+      row.notes,
+      row.createdByName
+    ].filter(Boolean).join(" ")).toLowerCase().includes(cleanInventoryQuery))
+    : [];
   const extinguisherAlerts = extinguishers
     .map((row) => ({ row, days: daysUntil(row.expiresAt) }))
     .filter((item) => item.days !== null && item.days <= 30)
@@ -4491,23 +4513,76 @@ function OrderlyPanel({ rows, user, actions }) {
         })}
       </ListBlock>
 
-      <ListBlock title="רשימת מלאי מחסן" empty="אין רשומות מלאי">
-        {inventoryRows.map((row) => (
-          <article className="list-item inventory-item" key={row.id}>
-            <div>
-              <strong>{row.name || "מלאי מחסן"}</strong>
-              <p>
-                {row.notes}
-                {row.createdByName ? ` · עודכן על ידי ${row.createdByName}` : ""}
-                {row.createdAt ? <> · <DateText>{formatDateTime(row.createdAt)}</DateText></> : ""}
-              </p>
+      <div className="inventory-search-card">
+        <div>
+          <strong>חיפוש מלאי מחסן</strong>
+          <p>{inventoryRows.length ? `${inventoryRows.length} רשומות שמורות` : "אין רשומות מלאי שמורות"}</p>
+        </div>
+        <button type="button" onClick={() => {
+          hapticTap(10);
+          setInventorySearchOpen(true);
+        }}>
+          פתח חיפוש
+        </button>
+      </div>
+
+      {inventorySearchOpen && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setInventorySearchOpen(false)}>
+          <div
+            className="calendar-modal inventory-search-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="inventory-search-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="calendar-modal-head">
+              <button className="ghost" type="button" onClick={() => setInventorySearchOpen(false)}>
+                סגור
+              </button>
+              <div>
+                <span className="eyebrow">מלאי מחסן</span>
+                <h3 id="inventory-search-title">חיפוש מלאי</h3>
+              </div>
             </div>
-            <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.orderly}:${row.id}`)} onClick={() => actions.remove(TABLES.orderly, row.id)}>
-              מחק
-            </button>
-          </article>
-        ))}
-      </ListBlock>
+            <label className="inventory-search-field">
+              חיפוש
+              <input
+                autoFocus
+                value={inventoryQuery}
+                onChange={(event) => setInventoryQuery(event.target.value)}
+                placeholder="חפש לפי פריט, הערה או מי עדכן"
+              />
+            </label>
+            <div className="calendar-modal-list inventory-search-results">
+              {!inventoryQuery.trim() ? (
+                <article className="calendar-modal-empty">
+                  כתוב מילת חיפוש כדי להציג מלאי
+                </article>
+              ) : matchingInventoryRows.length ? (
+                matchingInventoryRows.map((row) => (
+                  <article className="calendar-modal-item inventory-item" key={row.id}>
+                    <div>
+                      <strong>{row.name || "מלאי מחסן"}</strong>
+                      <p>
+                        {row.notes}
+                        {row.createdByName ? ` · עודכן על ידי ${row.createdByName}` : ""}
+                        {row.createdAt ? <> · <DateText>{formatDateTime(row.createdAt)}</DateText></> : ""}
+                      </p>
+                    </div>
+                    <button className="danger" type="button" disabled={actions.isPending(`remove:${TABLES.orderly}:${row.id}`)} onClick={() => actions.remove(TABLES.orderly, row.id)}>
+                      מחק
+                    </button>
+                  </article>
+                ))
+              ) : (
+                <article className="calendar-modal-empty">
+                  לא נמצאו תוצאות
+                </article>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

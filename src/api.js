@@ -41,9 +41,12 @@ async function readJsonResponse(response, fallbackMessage) {
   return data;
 }
 
-export async function readAll() {
+export async function readAll(tables = []) {
   const url = new URL(API_URL);
   url.searchParams.set("action", "read");
+  if (Array.isArray(tables) && tables.length > 0) {
+    url.searchParams.set("tables", tables.join(","));
+  }
 
   const response = await fetchWithTimeout(url.toString(), {}, READ_TIMEOUT_MS);
   const data = await readJsonResponse(response, NETWORK_ERROR_MESSAGE);
