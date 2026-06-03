@@ -130,7 +130,8 @@ const REPORT_EVENT_LABELS = {
   owner_stay: "שהיית בעלים",
   swap: "החלפה",
   departure: "עזיבה",
-  vacant: "ריק",
+  vacant: "ריק אחרי יציאה",
+  occupied: "מאוכלס",
   block: "חסום"
 };
 const SCHEDULE_NOTICE_DISMISSED_KEY = "williams_schedule_notice_dismissed";
@@ -599,6 +600,176 @@ function occupiedQuietRoomsForDate(date, rows, vacantRooms = []) {
   });
 }
 
+function calendarArrivalTypeForRow(row) {
+  const type = reportEventType(row);
+  if (type === "maintenance_stay" || type === "owner_stay") return type;
+  return "arrival";
+}
+
+function bestCalendarSourceRow(rows, preferredType = "") {
+  const filtered = rows.filter(Boolean);
+  if (!filtered.length) return null;
+  const priority = {
+    swap: 0,
+    arrival: 1,
+    maintenance_stay: 1,
+    owner_stay: 1,
+    departure: 2,
+    vacant: 3,
+    occupied: 4,
+    block: 5
+  };
+
+  return filtered.slice().sort((a, b) => {
+    const typeA = preferredType || reportEventType(a);
+    const typeB = preferredType || reportEventType(b);
+    const typeDiff = (priority[typeA] ?? 99) - (priority[typeB] ?? 99);
+    if (typeDiff) return typeDiff;
+    return String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || ""));
+  })[0];
+}
+
+function calendarStateRow({ room, date, eventType, sourceRows = [], editRow = null }) {
+  const primary = editRow || bestCalendarSourceRow(sourceRows, eventType) || {};
+  const guestSource = sourceRows
+    .filter((row) => eventType !== "vacant" && eventType !== "block" && Number(row?.guests || 0) > 0)
+    .sort((a, b) => Number(b.guests || 0) - Number(a.guests || 0))[0] || primary;
+  const sourceId = String(primary.id || "").trim();
+  const id = sourceId && eventType !== "occupied"
+    ? `calendar-${eventType}-${sourceId}`
+    : `calendar-${eventType}-${date}-${room}`;
+
+  return {
+    ...primary,
+    id,
+    room,
+    date,
+    eventType,
+    eventRows: sourceRows,
+    editRow: editRow || null,
+    guests: eventType === "vacant" || eventType === "block" ? 0 : Number(guestSource.guests || 0),
+    children: eventType === "vacant" || eventType === "block" ? 0 : Number(guestSource.children || 0),
+    babies: eventType === "vacant" || eventType === "block" ? 0 : Number(guestSource.babies || 0),
+    notes: primary.notes || guestSource.notes || "",
+    isOccupied: eventType === "swap",
+    reportSource: primary.reportSource || "report"
+  };
+}
+
+function createCalendarRoomStateResolver(rows) {
+  const cleanRows = uniqueReportEvents(filterStaleLegacyArrivalRows(rows || []));
+  const rangeRows = reportRangeRows(cleanRows);
+  return (date) => calendarRoomStatesForDate(date, cleanRows, rangeRows);
+}
+
+function calendarRoomStatesForDate(date, cleanRows, rangeRows) {
+  const safeCleanRows = cleanRows || [];
+  const safeRangeRows = rangeRows || reportRangeRows(safeCleanRows);
+
+  return BOOKING_ROOMS.map((room) => {
+    const roomRows = safeCleanRows.filter((row) => String(row.room || "").trim() === room);
+    const roomRanges = safeRangeRows.filter((row) => String(row.room || "").trim() === room);
+
+    const blocksToday = roomRanges.filter((row) => {
+      if (!isBlockingReportRow(row)) return false;
+      const startDate = dateKey(row.arrivalDate || row.date);
+      const endDate = dateKey(row.departureDate || row.date);
+      return startDate && endDate && startDate <= date && date < endDate;
+    });
+
+    if (blocksToday.length) {
+      return calendarStateRow({
+        room,
+        date,
+        eventType: "block",
+        sourceRows: blocksToday,
+        editRow: bestCalendarSourceRow(blocksToday, "block")
+      });
+    }
+
+    const arrivalsToday = [
+      ...roomRows.filter((row) => {
+        if (isBlockingReportRow(row) || isDepartureEvent(row)) return false;
+        const arrivalDate = dateKey(row.arrivalDate);
+        const rowDate = dateKey(row.date);
+        const type = reportEventType(row);
+        if (arrivalDate) return arrivalDate === date;
+        return rowDate === date && (type === "arrival" || type === "maintenance_stay" || type === "owner_stay" || type === "swap");
+      }),
+      ...roomRanges.filter((row) => {
+        if (isBlockingReportRow(row)) return false;
+        const arrivalDate = dateKey(row.arrivalDate);
+        return arrivalDate && arrivalDate === date;
+      })
+    ];
+
+    const departuresToday = [
+      ...roomRows.filter((row) => {
+        const departureDate = dateKey(row.departureDate);
+        const rowDate = dateKey(row.date);
+        if (departureDate) return departureDate === date;
+        return rowDate === date && isDepartureEvent(row);
+      }),
+      ...roomRanges.filter((row) => {
+        const departureDate = dateKey(row.departureDate);
+        return departureDate && departureDate === date;
+      })
+    ];
+
+    const uniqueArrivals = uniqueReportEvents(arrivalsToday);
+    const uniqueDepartures = uniqueReportEvents(departuresToday);
+
+    if (uniqueArrivals.length && uniqueDepartures.length) {
+      return calendarStateRow({
+        room,
+        date,
+        eventType: "swap",
+        sourceRows: [...uniqueArrivals, ...uniqueDepartures],
+        editRow: bestCalendarSourceRow(uniqueArrivals, "arrival")
+      });
+    }
+
+    if (uniqueArrivals.length) {
+      const arrivalRow = bestCalendarSourceRow(uniqueArrivals, "arrival");
+      return calendarStateRow({
+        room,
+        date,
+        eventType: calendarArrivalTypeForRow(arrivalRow),
+        sourceRows: uniqueArrivals,
+        editRow: arrivalRow
+      });
+    }
+
+    if (uniqueDepartures.length) {
+      return calendarStateRow({
+        room,
+        date,
+        eventType: "vacant",
+        sourceRows: uniqueDepartures,
+        editRow: bestCalendarSourceRow(uniqueDepartures, "departure")
+      });
+    }
+
+    const activeStayRows = roomRanges.filter((row) => {
+      if (isBlockingReportRow(row)) return false;
+      const arrivalDate = dateKey(row.arrivalDate);
+      const departureDate = dateKey(row.departureDate);
+      return arrivalDate && departureDate && arrivalDate < date && date < departureDate;
+    });
+
+    if (activeStayRows.length) {
+      return calendarStateRow({
+        room,
+        date,
+        eventType: "occupied",
+        sourceRows: activeStayRows
+      });
+    }
+
+    return null;
+  }).filter(Boolean);
+}
+
 function isGardenScheduleEvent(row) {
   const type = reportEventType(row);
   return type === "arrival" || type === "maintenance_stay" || type === "swap" || type === "owner_stay";
@@ -900,6 +1071,7 @@ function reportEventClass(row) {
 function reportEventLabel(row) {
   if (reportEventType(row) === "owner_stay") return "שהיית בעלים";
   if (reportEventType(row) === "block") return "אחזקה";
+  if (reportEventType(row) === "occupied") return "מאוכלס";
   return REPORT_EVENT_LABELS[reportEventType(row)] || "כניסה";
 }
 
@@ -1736,6 +1908,7 @@ async function initOneSignalSubscription(user) {
 export default function App() {
   const [cachedSnapshot] = useState(() => readCachedData());
   const [data, setData] = useState(() => ({ ...emptyData, ...(cachedSnapshot?.data || {}) }));
+  const dataRef = useRef(data);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [scheduleNotice, setScheduleNotice] = useState(null);
@@ -1756,31 +1929,45 @@ export default function App() {
   });
   const [tab, setTab] = useState("dashboard");
 
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
+
   const loadData = async ({ force = false, role } = {}) => {
     if (refreshInFlightRef.current) return refreshInFlightRef.current;
     if (!force && lastRefreshAtRef.current && Date.now() - lastRefreshAtRef.current < MIN_REFRESH_GAP_MS) {
-      return data;
+      return dataRef.current;
     }
 
     const refresh = (async () => {
-      const nextData = await readAll(readTablesForRole(role || user?.role));
-      const normalized = { ...emptyData, ...data, ...nextData };
-      const changes = findTurnoverChanges(previousTurnoversRef.current, normalized.turnovers);
-      if (changes.length > 0) {
-        const signature = scheduleNoticeSignature(changes);
-        if (signature !== readDismissedScheduleNotice()) {
-          setScheduleNotice({ items: changes, preview: scheduleNoticePreview(changes), signature });
+      try {
+        const nextData = await readAll(readTablesForRole(role || user?.role));
+        const currentData = dataRef.current;
+        const normalized = { ...emptyData, ...currentData, ...nextData };
+        const changes = findTurnoverChanges(previousTurnoversRef.current, normalized.turnovers);
+        if (changes.length > 0) {
+          const signature = scheduleNoticeSignature(changes);
+          if (signature !== readDismissedScheduleNotice()) {
+            setScheduleNotice({ items: changes, preview: scheduleNoticePreview(changes), signature });
+          } else {
+            setScheduleNotice(null);
+          }
         } else {
           setScheduleNotice(null);
         }
-      } else {
-        setScheduleNotice(null);
+        previousTurnoversRef.current = normalized.turnovers;
+        lastRefreshAtRef.current = Date.now();
+        dataRef.current = normalized;
+        setData(normalized);
+        saveCachedData(normalized);
+        return normalized;
+      } catch (err) {
+        lastRefreshAtRef.current = Date.now();
+        const currentData = dataRef.current;
+        const hasLocalData = Object.values(currentData || {}).some((value) => Array.isArray(value) && value.length > 0);
+        if (hasLocalData) return currentData;
+        throw err;
       }
-      previousTurnoversRef.current = normalized.turnovers;
-      lastRefreshAtRef.current = Date.now();
-      setData(normalized);
-      saveCachedData(normalized);
-      return normalized;
     })();
 
     refreshInFlightRef.current = refresh;
@@ -1840,6 +2027,7 @@ export default function App() {
   const applyOptimisticData = (updater) => {
     setData((current) => {
       const next = updater(current);
+      dataRef.current = next;
       saveCachedData(next);
       return next;
     });
@@ -1889,9 +2077,12 @@ export default function App() {
       })
       .catch((err) => {
         const message = err.message || String(err);
-        setActionNotice({ type: "error", text: `שגיאה: ${message}` });
-        setError(message);
-        loadData().catch(() => {});
+        const text = `לא נשמר בשיטס כרגע. הפעולה נשארה מקומית. ${message}`;
+        lastRefreshAtRef.current = Date.now();
+        setActionNotice({ type: "error", text });
+        window.setTimeout(() => {
+          setActionNotice((current) => (current?.text === text ? null : current));
+        }, 4200);
       })
       .finally(() => {
         pendingWritesRef.current = Math.max(0, pendingWritesRef.current - 1);
@@ -2062,10 +2253,11 @@ export default function App() {
     }
 
     if (!found) return false;
+    setError("");
     localStorage.setItem("williams_user", JSON.stringify(found));
     setUser(found);
     setTab((tabSets[found.role] || tabSets.admin)[0]);
-    loadData({ force: true, role: found.role }).catch((err) => setError(err.message || String(err)));
+    loadData({ force: true, role: found.role }).catch(() => {});
     initOneSignalSubscription(found);
     return true;
   };
@@ -2964,21 +3156,7 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
   const [editingRow, setEditingRow] = useState(null);
   const safeRows = rows || [];
   const todayDate = today();
-  const monthRows = useMemo(
-    () => uniqueReportEvents(filterStaleLegacyArrivalRows(safeRows.filter((row) => monthKey(row.date) === month))),
-    [safeRows, month]
-  );
-  const calendarRows = useMemo(
-    () => filterDepartureOnlyDisplayRows(mergeScheduleListRows(monthRows), (date) => vacantRoomsForDate(date, safeRows)),
-    [monthRows, safeRows]
-  );
-  const rowsByDate = useMemo(() => calendarRows.reduce((acc, row) => {
-    const date = dateKey(row.date);
-    if (!date) return acc;
-    if (!acc[date]) acc[date] = [];
-    acc[date].push(row);
-    return acc;
-  }, {}), [calendarRows]);
+  const calendarStateResolver = useMemo(() => createCalendarRoomStateResolver(safeRows), [safeRows]);
   const monthMeta = useMemo(() => {
     const first = new Date(`${monthStart(month)}T12:00:00`);
     return {
@@ -2991,44 +3169,37 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
     ...Array.from({ length: monthMeta.daysInMonth }, (_, index) => {
       const day = index + 1;
       const date = `${month}-${String(day).padStart(2, "0")}`;
-      const dayRows = rowsByDate[date] || [];
-      const vacantRooms = vacantRoomsForDate(date, safeRows);
-      const occupiedQuietRooms = occupiedQuietRoomsForDate(date, safeRows, vacantRooms);
-      const visibleRows = dayRows.filter((row) => !isDepartureEvent(row));
+      const dayRows = calendarStateResolver(date);
+      const vacantRooms = dayRows.filter((row) => reportEventType(row) === "vacant").map((row) => row.room);
+      const occupiedQuietRooms = dayRows.filter((row) => reportEventType(row) === "occupied").map((row) => row.room);
+      const visibleRows = dayRows.filter((row) => reportEventType(row) !== "occupied");
       return {
         key: date,
         date,
         day,
         rows: dayRows,
         visibleRows,
-        arrivalCount: dayRows.filter(isPureArrivalEvent).length,
-        swapCount: dayRows.filter(isSwapEvent).length,
-        departureCount: dayRows.filter(isDepartureEvent).length,
+        arrivalCount: dayRows.filter((row) => ["arrival", "maintenance_stay", "owner_stay"].includes(reportEventType(row))).length,
+        swapCount: dayRows.filter((row) => reportEventType(row) === "swap").length,
+        departureCount: 0,
         vacantRooms,
         occupiedQuietRooms
       };
     })
-  ], [month, monthMeta, rowsByDate, safeRows]);
-  const arrivalRows = useMemo(() => calendarRows.filter(isPureArrivalEvent), [calendarRows]);
-  const swapRows = useMemo(() => calendarRows.filter(isSwapEvent), [calendarRows]);
-  const vacantRows = useMemo(() => cells.flatMap((cell) =>
-    (cell.vacantRooms || []).map((room) => ({
-      id: `vacant-${cell.date}-${room}`,
-      eventType: "vacant",
-      room,
-      date: cell.date
-    }))
-  ), [cells]);
-  const selectedDayRows = selectedDay?.rows || [];
-  const selectedDayVacantRooms = selectedDay?.vacantRooms || [];
-  const selectedDayDisplayRows = useMemo(
-    () => selectedDayRows.filter((row) => !isDepartureEvent(row) || !selectedDayVacantRooms.includes(String(row.room || "").trim())),
-    [selectedDayRows, selectedDayVacantRooms]
+  ], [month, monthMeta, calendarStateResolver]);
+  const calendarRows = useMemo(() => cells.flatMap((cell) => cell.rows || []), [cells]);
+  const arrivalRows = useMemo(
+    () => calendarRows.filter((row) => ["arrival", "maintenance_stay", "owner_stay"].includes(reportEventType(row))),
+    [calendarRows]
   );
+  const swapRows = useMemo(() => calendarRows.filter((row) => reportEventType(row) === "swap"), [calendarRows]);
+  const vacantRows = useMemo(() => calendarRows.filter((row) => reportEventType(row) === "vacant"), [calendarRows]);
+  const selectedDayRows = selectedDay?.rows || [];
+  const selectedDayDisplayRows = selectedDayRows;
   const summaryGroups = [
     { key: "arrivals", label: "כניסות", className: "stat-arrival", rows: arrivalRows },
     { key: "swaps", label: "החלפות", className: "stat-swap", rows: swapRows },
-    { key: "vacant", label: "ריקים", className: "stat-departure", rows: vacantRows }
+    { key: "vacant", label: "ריקים אחרי יציאה", className: "stat-departure", rows: vacantRows }
   ];
 
   return (
@@ -3053,7 +3224,7 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                           <span>{reportEventLabel(row)} · {row.room || "חדר"}</span>
                           <small>
                             <DateText>{formatDisplayDate(row.date)}</DateText>
-                            {group.key === "vacant" ? " · חדר ריק" : ""}
+                            {group.key === "vacant" ? " · יציאה בלי כניסה באותו יום" : ""}
                             {isDepartureEvent(row) ? " · עזיבה" : ""}
                             {isSwapEvent(row) && group.key === "departures" ? " · עזיבה כחלק מהחלפה" : ""}
                             {group.key !== "vacant" && !isDepartureEvent(row) && !(isSwapEvent(row) && group.key === "departures") ? ` · ${row.guests || 0} אורחים` : ""}
@@ -3121,7 +3292,7 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                 ))}
                 {cell.visibleRows.length > 3 && <small>+{cell.visibleRows.length - 3} נוספים</small>}
                 {cell.vacantRooms?.length > 0 && (
-                  <small className="event-vacant">ריקים · {cell.vacantRooms.slice(0, 2).join(" · ")}</small>
+                  <small className="event-vacant">ריקים אחרי יציאה · {cell.vacantRooms.slice(0, 2).join(" · ")}</small>
                 )}
                 {cell.occupiedQuietRooms?.length > 0 && (
                   <small className="event-occupied">מאוכלסים · {cell.occupiedQuietRooms.slice(0, 2).join(" · ")}</small>
@@ -3146,38 +3317,28 @@ function BookingsCalendar({ rows, reportSync = [], actions, canEdit = false }) {
                 סגור
               </button>
             </div>
-            {selectedDayDisplayRows.length || selectedDay.vacantRooms?.length || selectedDay.occupiedQuietRooms?.length ? (
+            {selectedDayDisplayRows.length ? (
               <div className="calendar-modal-list">
-                {selectedDay.vacantRooms?.length > 0 && (
-                  <article className="calendar-modal-item event-vacant">
-                    <strong>ריק · {selectedDay.vacantRooms.join(" · ")}</strong>
-                    <p>לא מאוכלס ביום הזה לפי טווחי ההזמנות</p>
-                  </article>
-                )}
-                {selectedDay.occupiedQuietRooms?.length > 0 && (
-                  <article className="calendar-modal-item event-occupied">
-                    <strong>מאוכלס · {selectedDay.occupiedQuietRooms.join(" · ")}</strong>
-                    <p>אין פעולה ביומן, אבל החדר בתוך טווח אירוח פעיל</p>
-                  </article>
-                )}
                 {selectedDayDisplayRows.map((row, index) => {
-                  const editRow = row.editRow || row;
+                  const type = reportEventType(row);
+                  const editRow = row.editRow || null;
                   return (
                   <article className={`calendar-modal-item ${reportEventClass(row)}`} key={`${reportEventKey(row)}-${index}`}>
-                    {editingRow?.id === editRow.id ? (
+                    {editRow && editingRow?.id === editRow.id ? (
                       <TurnoverEditForm row={editRow} rows={rows} actions={actions} onCancel={() => setEditingRow(null)} onSaved={() => setEditingRow(null)} />
                     ) : (
                       <>
                         <strong>{reportEventLabel(row)} · {row.room || "חדר"}</strong>
                         <p>
-                          {isDepartureEvent(row) ? "עזיבה" : `${row.guests || 0} אורחים`}
+                          {type === "vacant" ? "חדר ריק אחרי יציאה" : `${row.guests || 0} אורחים`}
                           {row.children ? ` · ${row.children} ילדים` : ""}
                           {row.babies ? ` · ${row.babies} תינוקות` : ""}
                           {stayDetails(row) ? ` · ${stayDetails(row)}` : ""}
-                          {row.isReturning ? " · לקוח חוזר" : " · לקוח חדש"}
-                          {row.isOccupied ? " · החלפה" : ""}
+                          {type === "occupied" ? " · שהייה פעילה" : ""}
+                          {type !== "vacant" && type !== "occupied" && type !== "block" ? (row.isReturning ? " · לקוח חוזר" : " · לקוח חדש") : ""}
+                          {type === "swap" ? " · החלפה" : ""}
                         </p>
-                        {canEdit && actions && (
+                        {canEdit && actions && editRow && (
                           <div className="actions calendar-modal-actions">
                             <button className="edit-button" type="button" onClick={() => setEditingRow(editRow)}>
                               <span aria-hidden="true">✎</span>
