@@ -53,11 +53,21 @@ const readTablesByRole = {
 };
 
 const readTablesForRole = (role) => readTablesByRole[role] || readTablesByRole.guest;
+const calendarTablesByRole = {
+  guest: [],
+  admin: ["turnovers", "report_sync"],
+  bookings: ["turnovers", "report_sync"],
+  maint: ["turnovers", "report_sync"],
+  house: ["turnovers", "report_sync"]
+};
+const calendarTablesForRole = (role) => calendarTablesByRole[role] || calendarTablesByRole.guest;
 
 const today = () => dateKey(new Date());
 const oneHourFromNow = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
 const BACKGROUND_REFRESH_MS = 300000;
-const MIN_REFRESH_GAP_MS = 90000;
+const CALENDAR_REFRESH_MS = 45000;
+const MIN_REFRESH_GAP_MS = 60000;
+const CALENDAR_MIN_REFRESH_GAP_MS = 12000;
 const addDays = (date, days) => {
   const next = new Date(`${date}T12:00:00`);
   next.setDate(next.getDate() + days);
@@ -1918,7 +1928,9 @@ export default function App() {
   const pendingWritesRef = useRef(0);
   const pendingActionKeysRef = useRef(new Set());
   const refreshInFlightRef = useRef(null);
+  const calendarRefreshInFlightRef = useRef(null);
   const lastRefreshAtRef = useRef(0);
+  const lastCalendarRefreshAtRef = useRef(0);
   const previousTurnoversRef = useRef(cachedSnapshot?.data?.turnovers || []);
   const [user, setUser] = useState(() => {
     try {
@@ -1933,17 +1945,11 @@ export default function App() {
     dataRef.current = data;
   }, [data]);
 
-  const loadData = async ({ force = false, role } = {}) => {
-    if (refreshInFlightRef.current) return refreshInFlightRef.current;
-    if (!force && lastRefreshAtRef.current && Date.now() - lastRefreshAtRef.current < MIN_REFRESH_GAP_MS) {
-      return dataRef.current;
-    }
+  const mergeFreshData = (nextData) => {
+    const currentData = dataRef.current;
+    const normalized = { ...emptyData, ...currentData, ...nextData };
 
-    const refresh = (async () => {
-      try {
-        const nextData = await readAll(readTablesForRole(role || user?.role));
-        const currentData = dataRef.current;
-        const normalized = { ...emptyData, ...currentData, ...nextData };
+    if (Object.prototype.hasOwnProperty.call(nextData || {}, "turnovers")) {
         const changes = findTurnoverChanges(previousTurnoversRef.current, normalized.turnovers);
         if (changes.length > 0) {
           const signature = scheduleNoticeSignature(changes);
@@ -1956,11 +1962,56 @@ export default function App() {
           setScheduleNotice(null);
         }
         previousTurnoversRef.current = normalized.turnovers;
+    }
+
+    dataRef.current = normalized;
+    setData(normalized);
+    saveCachedData(normalized);
+    return normalized;
+  };
+
+  const loadCalendarData = async ({ force = false, role } = {}) => {
+    const tables = calendarTablesForRole(role || user?.role);
+    if (!tables.length) return dataRef.current;
+    if (calendarRefreshInFlightRef.current) return calendarRefreshInFlightRef.current;
+    if (!force && lastCalendarRefreshAtRef.current && Date.now() - lastCalendarRefreshAtRef.current < CALENDAR_MIN_REFRESH_GAP_MS) {
+      return dataRef.current;
+    }
+
+    const refresh = (async () => {
+      try {
+        const nextData = await readAll(tables);
+        lastCalendarRefreshAtRef.current = Date.now();
+        return mergeFreshData(nextData);
+      } catch (err) {
+        lastCalendarRefreshAtRef.current = Date.now();
+        const currentData = dataRef.current;
+        const hasLocalData = Object.values(currentData || {}).some((value) => Array.isArray(value) && value.length > 0);
+        if (hasLocalData) return currentData;
+        throw err;
+      }
+    })();
+
+    calendarRefreshInFlightRef.current = refresh;
+
+    try {
+      return await refresh;
+    } finally {
+      calendarRefreshInFlightRef.current = null;
+    }
+  };
+
+  const loadData = async ({ force = false, role } = {}) => {
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
+    if (!force && lastRefreshAtRef.current && Date.now() - lastRefreshAtRef.current < MIN_REFRESH_GAP_MS) {
+      return dataRef.current;
+    }
+
+    const refresh = (async () => {
+      try {
+        const nextData = await readAll(readTablesForRole(role || user?.role));
         lastRefreshAtRef.current = Date.now();
-        dataRef.current = normalized;
-        setData(normalized);
-        saveCachedData(normalized);
-        return normalized;
+        return mergeFreshData(nextData);
       } catch (err) {
         lastRefreshAtRef.current = Date.now();
         const currentData = dataRef.current;
@@ -2000,21 +2051,34 @@ export default function App() {
   useEffect(() => {
     if (!user) return undefined;
 
-    const refreshWhenReady = () => {
+    const refreshFullWhenReady = () => {
       if (document.hidden) return;
       if (pendingWritesRef.current > 0) return;
       loadData().catch(() => {});
     };
 
-    const refreshAfterReturn = () => {
-      if (!document.hidden) refreshWhenReady();
+    const refreshCalendarWhenReady = (force = false) => {
+      if (document.hidden) return;
+      if (pendingWritesRef.current > 0) return;
+      loadCalendarData({ force }).catch(() => {});
     };
 
-    const interval = window.setInterval(refreshWhenReady, BACKGROUND_REFRESH_MS);
+    const refreshAfterReturn = () => {
+      if (!document.hidden) {
+        refreshCalendarWhenReady(true);
+        refreshFullWhenReady();
+      }
+    };
+
+    const calendarKick = window.setTimeout(() => refreshCalendarWhenReady(true), 250);
+    const calendarInterval = window.setInterval(refreshCalendarWhenReady, CALENDAR_REFRESH_MS);
+    const fullInterval = window.setInterval(refreshFullWhenReady, BACKGROUND_REFRESH_MS);
     document.addEventListener("visibilitychange", refreshAfterReturn);
 
     return () => {
-      window.clearInterval(interval);
+      window.clearTimeout(calendarKick);
+      window.clearInterval(calendarInterval);
+      window.clearInterval(fullInterval);
       document.removeEventListener("visibilitychange", refreshAfterReturn);
     };
   }, [user]);
@@ -2257,7 +2321,10 @@ export default function App() {
     localStorage.setItem("williams_user", JSON.stringify(found));
     setUser(found);
     setTab((tabSets[found.role] || tabSets.admin)[0]);
-    loadData({ force: true, role: found.role }).catch(() => {});
+    loadCalendarData({ force: true, role: found.role }).catch(() => {});
+    window.setTimeout(() => {
+      loadData({ force: true, role: found.role }).catch(() => {});
+    }, 600);
     initOneSignalSubscription(found);
     return true;
   };
@@ -4373,7 +4440,7 @@ function NotificationsPanel({ rows, turnovers, user, actions }) {
                       actions.notice("הוסר מהתצוגה");
                     }}
                   >
-                    נקרא
+                    הסתר
                   </button>
                 </div>
               </article>
@@ -4385,11 +4452,6 @@ function NotificationsPanel({ rows, turnovers, user, actions }) {
                 <div>
                   <strong>{row.room || "התראה"}</strong>
                   <p>{row.message}</p>
-                </div>
-                <div className="actions">
-                  <button type="button" disabled={actions.isPending(`update:${TABLES.notifications}:${row.id}`)} onClick={() => actions.update(TABLES.notifications, { ...row, read: true })}>
-                    {actions.isPending(`update:${TABLES.notifications}:${row.id}`) ? "מסמן..." : "נקרא"}
-                  </button>
                 </div>
               </article>
             ))}
