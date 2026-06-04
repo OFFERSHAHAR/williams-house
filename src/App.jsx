@@ -664,6 +664,7 @@ function calendarStateRow({ room, date, eventType, sourceRows = [], editRow = nu
   const guestSource = sourceRows
     .filter((row) => eventType !== "vacant" && eventType !== "block" && Number(row?.guests || 0) > 0)
     .sort((a, b) => Number(b.guests || 0) - Number(a.guests || 0))[0] || primary;
+  const displayGuestSource = editRow || guestSource;
   const sourceId = String(primary.id || "").trim();
   const id = sourceId && eventType !== "occupied"
     ? `calendar-${eventType}-${sourceId}`
@@ -677,10 +678,10 @@ function calendarStateRow({ room, date, eventType, sourceRows = [], editRow = nu
     eventType,
     eventRows: sourceRows,
     editRow: editRow || null,
-    guests: eventType === "vacant" || eventType === "block" ? 0 : Number(guestSource.guests || 0),
-    children: eventType === "vacant" || eventType === "block" ? 0 : Number(guestSource.children || 0),
-    babies: eventType === "vacant" || eventType === "block" ? 0 : Number(guestSource.babies || 0),
-    notes: primary.notes || guestSource.notes || "",
+    guests: eventType === "vacant" || eventType === "block" ? 0 : Number(displayGuestSource.guests || 0),
+    children: eventType === "vacant" || eventType === "block" ? 0 : Number(displayGuestSource.children || 0),
+    babies: eventType === "vacant" || eventType === "block" ? 0 : Number(displayGuestSource.babies || 0),
+    notes: primary.notes || displayGuestSource.notes || "",
     isOccupied: eventType === "swap",
     reportSource: primary.reportSource || "report"
   };
