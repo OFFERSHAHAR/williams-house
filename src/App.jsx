@@ -96,6 +96,10 @@ const isYifatUser = (user) => sameText(user?.username, "ifat") || sameText(user?
 const isUnread = (row) => row.read !== true && row.read !== "TRUE";
 const isNotificationForUser = (row, user) =>
   Boolean(user) && (sameText(row.for, user.username) || sameText(row.for, user.role) || sameText(row.for, "all"));
+const isMaintenanceReadReceipt = (row) => {
+  const text = `${row.room || ""} ${row.message || ""}`.toLowerCase();
+  return text.includes("אישור אחזקה") || text.includes("קרא/ה משימת אחזקה");
+};
 const isMaintenanceNotification = (row) => {
   const text = `${row.room || ""} ${row.message || ""}`.toLowerCase();
   return text.includes("משימת אחזקה") || text.includes("תקלה") || text.includes("maintenance");
@@ -145,6 +149,7 @@ const REPORT_EVENT_LABELS = {
   block: "חסום"
 };
 const SCHEDULE_NOTICE_DISMISSED_KEY = "williams_schedule_notice_dismissed";
+const MAINTENANCE_NOTICE_DISMISSED_KEY = "williams_maintenance_notice_dismissed";
 const turnoverChangeFields = [
   ["room", "חדר"],
   ["date", "תאריך"],
@@ -290,6 +295,21 @@ function readDismissedScheduleNotice() {
 function saveDismissedScheduleNotice(signature) {
   try {
     localStorage.setItem(SCHEDULE_NOTICE_DISMISSED_KEY, signature || "");
+  } catch {}
+}
+
+function readDismissedMaintenanceNotices() {
+  try {
+    const value = JSON.parse(localStorage.getItem(MAINTENANCE_NOTICE_DISMISSED_KEY) || "[]");
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveDismissedMaintenanceNotices(ids) {
+  try {
+    localStorage.setItem(MAINTENANCE_NOTICE_DISMISSED_KEY, JSON.stringify([...new Set(ids.filter(Boolean))].slice(-120)));
   } catch {}
 }
 
@@ -1924,7 +1944,7 @@ export default function App() {
   const [scheduleNotice, setScheduleNotice] = useState(null);
   const [pendingActions, setPendingActions] = useState(() => new Set());
   const [actionNotice, setActionNotice] = useState(null);
-  const [hiddenMaintenanceNotices, setHiddenMaintenanceNotices] = useState([]);
+  const [hiddenMaintenanceNotices, setHiddenMaintenanceNotices] = useState(() => readDismissedMaintenanceNotices());
   const pendingWritesRef = useRef(0);
   const pendingActionKeysRef = useRef(new Set());
   const refreshInFlightRef = useRef(null);
@@ -2088,6 +2108,12 @@ export default function App() {
     if (!tabs.includes(tab)) setTab(tabs[0]);
   }, [user, tab]);
 
+  useEffect(() => {
+    if (!user) return;
+    if (tab !== "turnovers" && tab !== "maintenanceCalendar") return;
+    loadCalendarData({ force: true, role: user.role }).catch(() => {});
+  }, [user, tab]);
+
   const applyOptimisticData = (updater) => {
     setData((current) => {
       const next = updater(current);
@@ -2223,7 +2249,20 @@ export default function App() {
       const actionKey = `update:${table}:${record.id}`;
       if (pendingActionKeysRef.current.has(actionKey)) return Promise.resolve();
       const before = table === TABLES.turnovers ? data.turnovers.find((row) => row.id === record.id) : null;
+      const maintenanceBefore = table === TABLES.maintenance ? data.maintenance.find((row) => row.id === record.id) : null;
       const summary = table === TABLES.turnovers ? turnoverChangeSummary(before, record) : "";
+      const maintenanceDoneNotice = table === TABLES.maintenance && user?.role !== "admin" && maintenanceBefore && !isDone(maintenanceBefore) && isDone(record)
+        ? {
+          id: newId(),
+          for: "admin",
+          room: "משימת אחזקה בוצעה",
+          date: today(),
+          message: `${userDisplayName(user)} סימן/ה בוצע: ${record.title || "משימת אחזקה"}${record.location ? ` · ${record.location}` : ""}`,
+          read: false,
+          createdAt: nowIso(),
+          pushSent: ""
+        }
+        : null;
       const notification = summary
         ? {
           id: newId(),
@@ -2235,7 +2274,7 @@ export default function App() {
           createdAt: nowIso(),
           pushSent: ""
         }
-        : null;
+        : maintenanceDoneNotice;
 
       applyOptimisticData((current) => ({
         ...current,
@@ -2349,6 +2388,14 @@ export default function App() {
     if (item !== tab) hapticTap(12);
     setTab(item);
   };
+  const hideMaintenanceNotice = (id, remember = false) => {
+    if (!id) return;
+    setHiddenMaintenanceNotices((current) => {
+      const next = [...new Set([...current, id])];
+      if (remember) saveDismissedMaintenanceNotices(next);
+      return next;
+    });
+  };
   const incomingMessage = (data.messages || [])
     .filter((row) => isMessageForUser(row, user) && isUnread(row))
     .sort(messageSortNewest)[0];
@@ -2357,6 +2404,7 @@ export default function App() {
       isNotificationForUser(row, user) &&
       isUnread(row) &&
       isMaintenanceNotification(row) &&
+      !isMaintenanceReadReceipt(row) &&
       !hiddenMaintenanceNotices.includes(row.id)
     )
     .sort(messageSortNewest)[0];
@@ -2429,9 +2477,8 @@ export default function App() {
       {incomingMaintenanceNotice && (
         <MaintenanceNoticePopup
           notice={incomingMaintenanceNotice}
-          user={user}
           actions={actions}
-          onExit={() => setHiddenMaintenanceNotices((current) => [...current, incomingMaintenanceNotice.id])}
+          onExit={(remember = false) => hideMaintenanceNotice(incomingMaintenanceNotice.id, remember)}
         />
       )}
       {incomingMessage && (
@@ -4295,33 +4342,21 @@ function MessagesPanel({ rows = [], users = [], user, actions }) {
   );
 }
 
-function MaintenanceNoticePopup({ notice, user, actions, onExit }) {
+function MaintenanceNoticePopup({ notice, actions, onExit }) {
   const confirmRead = () => {
-    onExit();
+    onExit(true);
     actions.update(TABLES.notifications, { ...notice, read: true });
-    if (notice.room !== "אישור אחזקה") {
-      actions.add(TABLES.notifications, {
-        id: newId(),
-        for: "admin",
-        room: "אישור אחזקה",
-        date: today(),
-        message: `${userDisplayName(user)} קרא/ה משימת אחזקה: ${notice.message || ""}`,
-        read: false,
-        createdAt: nowIso(),
-        pushSent: ""
-      });
-    }
   };
 
   return (
-    <div className="modal-backdrop maintenance-notice-backdrop" onClick={onExit}>
+    <div className="modal-backdrop maintenance-notice-backdrop" onClick={() => onExit(false)}>
       <div className="calendar-modal maintenance-notice-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
         <div className="calendar-modal-head message-modal-head">
           <div>
             <span className="muted">משימת אחזקה חדשה</span>
             <h3>{notice.room || "אחזקה"}</h3>
           </div>
-          <button className="message-close" type="button" onClick={onExit}>יציאה</button>
+          <button className="message-close" type="button" onClick={() => onExit(false)}>יציאה</button>
         </div>
         <div className="maintenance-notice-card">
           <strong>{notice.message || "נפתחה משימת אחזקה"}</strong>
@@ -4408,7 +4443,7 @@ function NotificationsPanel({ rows, turnovers, user, actions }) {
     .filter((row) => isDone(row) && !hiddenReadyRooms.includes(row.id))
     .sort((a, b) => String(b.completedAt || b.date || "").localeCompare(String(a.completedAt || a.date || "")));
   const adminRows = rows
-    .filter((row) => row.read !== true && row.read !== "TRUE" && (row.for === "admin" || row.for === "all"))
+    .filter((row) => row.read !== true && row.read !== "TRUE" && (row.for === "admin" || row.for === "all") && !isMaintenanceReadReceipt(row))
     .sort((a, b) => String(b.createdAt || b.date || "").localeCompare(String(a.createdAt || a.date || "")));
   const visibleRows = user.role === "admin"
     ? adminRows
