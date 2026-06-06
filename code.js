@@ -524,6 +524,62 @@ function appendReportSync_(summary) {
   return record;
 }
 
+function notifyAgentHub(summary) {
+  try {
+    const webhookUrl = PropertiesService.getScriptProperties().getProperty('AGENTHUB_WEBHOOK_URL');
+
+    if (!webhookUrl) {
+      Logger.log('AgentHub notify skipped: missing AGENTHUB_WEBHOOK_URL');
+      return {
+        ok: false,
+        skipped: true,
+        code: 0,
+        body: 'missing AGENTHUB_WEBHOOK_URL'
+      };
+    }
+
+    const payload = {
+      event: 'reports_synced',
+      source: 'williams_house',
+      syncId: String(summary.syncId || ''),
+      reportMonth: String(summary.reportMonth || ''),
+      newRows: Number(summary.newRows || 0),
+      changedRows: Number(summary.changedRows || 0),
+      removedRows: Number(summary.removedRows || 0),
+      unchangedRows: Number(summary.unchangedRows || 0),
+      totalRows: Number(summary.totalRows || 0),
+      approvedBy: String(summary.approvedBy || summary.requestedBy || 'יפעת'),
+      syncedAt: String(summary.syncedAt || new Date().toISOString())
+    };
+
+    const response = UrlFetchApp.fetch(webhookUrl, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+
+    const code = response.getResponseCode();
+    const body = response.getContentText();
+
+    Logger.log('AgentHub notify status: ' + code);
+    Logger.log('AgentHub notify body: ' + body);
+
+    return {
+      ok: code >= 200 && code < 300,
+      code: code,
+      body: body
+    };
+  } catch (err) {
+    Logger.log('AgentHub notify failed: ' + String(err));
+    return {
+      ok: false,
+      code: 0,
+      body: String(err)
+    };
+  }
+}
+
 function syncReportTurnovers(rows, summary) {
   if (!Array.isArray(rows)) {
     throw new Error('rows must be an array');
@@ -690,6 +746,12 @@ function syncReportTurnovers(rows, summary) {
   });
 
   const syncRecord = appendReportSync_(serverSummary);
+  notifyAgentHub(Object.assign({}, serverSummary, {
+    syncId: syncRecord.id,
+    approvedBy: summary.requestedBy || 'יפעת',
+    requestedBy: summary.requestedBy || '',
+    syncedAt: syncRecord.syncedAt
+  }));
 
   return {
     synced: rows.length,
