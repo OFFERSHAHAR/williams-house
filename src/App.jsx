@@ -797,6 +797,32 @@ function calendarRoomStatesForDate(date, cleanRows, rangeRows) {
       });
     }
 
+    const lastDepartureDate = roomRanges
+      .map((row) => dateKey(row.departureDate))
+      .filter((departureDate) => departureDate && departureDate <= date)
+      .sort()
+      .pop();
+
+    if (lastDepartureDate) {
+      const nextArrivalDate = roomRanges
+        .map((row) => dateKey(row.arrivalDate))
+        .filter((arrivalDate) => arrivalDate && arrivalDate > lastDepartureDate)
+        .sort()
+        .find((arrivalDate) => arrivalDate > date);
+
+      if (!nextArrivalDate || date < nextArrivalDate) {
+        const departureSourceRows = roomRanges.filter((row) => dateKey(row.departureDate) === lastDepartureDate);
+
+        return calendarStateRow({
+          room,
+          date,
+          eventType: "vacant",
+          sourceRows: departureSourceRows,
+          editRow: bestCalendarSourceRow(departureSourceRows, "departure")
+        });
+      }
+    }
+
     return null;
   }).filter(Boolean);
 }
