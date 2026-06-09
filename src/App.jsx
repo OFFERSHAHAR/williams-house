@@ -62,6 +62,10 @@ const calendarTablesByRole = {
 };
 const calendarTablesForRole = (role) => calendarTablesByRole[role] || calendarTablesByRole.guest;
 
+const AUTH_USER_KEY = "williams_user";
+const AUTH_SESSION_VERSION_KEY = "williams_auth_session_version";
+const AUTH_SESSION_VERSION = "2026-06-09-force-login";
+
 const today = () => dateKey(new Date());
 const oneHourFromNow = () => new Date(Date.now() + 60 * 60 * 1000).toISOString();
 const BACKGROUND_REFRESH_MS = 300000;
@@ -1981,7 +1985,13 @@ export default function App() {
   const previousTurnoversRef = useRef(cachedSnapshot?.data?.turnovers || []);
   const [user, setUser] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("williams_user") || "null");
+      if (localStorage.getItem(AUTH_SESSION_VERSION_KEY) !== AUTH_SESSION_VERSION) {
+        localStorage.removeItem(AUTH_USER_KEY);
+        localStorage.setItem(AUTH_SESSION_VERSION_KEY, AUTH_SESSION_VERSION);
+        return null;
+      }
+
+      return JSON.parse(localStorage.getItem(AUTH_USER_KEY) || "null");
     } catch {
       return null;
     }
@@ -2316,6 +2326,70 @@ export default function App() {
       setError("");
       return Promise.resolve();
     },
+    completeTurnoverRoom: (row) => {
+      const room = String(row?.room || "").trim();
+      const date = dateKey(row?.date);
+      if (!room || !date) return Promise.resolve();
+
+      const actionKey = `complete:${TABLES.turnovers}:${room}:${date}`;
+      if (pendingActionKeysRef.current.has(actionKey)) return Promise.resolve();
+
+      const sourceRows = (row.eventRows?.length ? row.eventRows : [row])
+        .filter((item) => item?.id && !String(item.id).startsWith("group-") && !String(item.id).startsWith("vacant-"));
+      const currentRows = dataRef.current.turnovers || [];
+      const fallbackRows = currentRows.filter((item) => String(item.room || "").trim() === room && dateKey(item.date) === date);
+      const rowsToComplete = (sourceRows.length ? sourceRows : fallbackRows)
+        .filter((item) => item?.id && !String(item.id).startsWith("group-") && !String(item.id).startsWith("vacant-"))
+        .filter((item) => !isDone(item));
+
+      if (!rowsToComplete.length) return Promise.resolve();
+
+      const completedAt = nowIso();
+      const completedRows = rowsToComplete.map((item) => ({
+        ...item,
+        status: "completed",
+        completedAt
+      }));
+      const completedIds = new Set(completedRows.map((item) => item.id));
+      const readyMessage = `החדר ${room} סומן כמוכן על ידי ${userDisplayName(user)}${date ? ` · ${formatDisplayDate(date)}` : ""}`;
+      const readyNotifications = ["admin", "bookings"].map((target) => ({
+        id: `room-ready-${date}-${room}-${target}`,
+        for: target,
+        room: room || "חדר מוכן",
+        date,
+        message: readyMessage,
+        read: false,
+        createdAt: completedAt,
+        pushSent: ""
+      }));
+      const readyNotificationIds = new Set(readyNotifications.map((notice) => notice.id));
+
+      applyOptimisticData((current) => ({
+        ...current,
+        turnovers: (current.turnovers || []).map((item) => {
+          const next = completedRows.find((completed) => completed.id === item.id);
+          return next || item;
+        }),
+        notifications: [
+          ...(current.notifications || []).filter((notice) => !readyNotificationIds.has(notice.id)),
+          ...readyNotifications
+        ]
+      }));
+
+      runInBackground(async () => {
+        await Promise.all(completedRows.map((item) => updateRecord(TABLES.turnovers, item)));
+        await Promise.all(readyNotifications.map((notice) => addRecord(TABLES.notifications, notice)));
+      }, { pending: "מסמן חדר כמוכן...", success: "החדר סומן כמוכן" }, actionKey, () => {
+        applyOptimisticData((current) => ({
+          ...current,
+          turnovers: (current.turnovers || []).map((item) => (completedIds.has(item.id)
+            ? { ...item, status: "completed", completedAt }
+            : item))
+        }));
+      });
+      setError("");
+      return Promise.resolve();
+    },
     syncReports: (nextReportRows, summary) => {
       const actionKey = "sync:reports";
       if (pendingActionKeysRef.current.has(actionKey)) return Promise.resolve({ ...summary, queued: true });
@@ -2384,7 +2458,8 @@ export default function App() {
 
     if (!found) return false;
     setError("");
-    localStorage.setItem("williams_user", JSON.stringify(found));
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(found));
+    localStorage.setItem(AUTH_SESSION_VERSION_KEY, AUTH_SESSION_VERSION);
     setUser(found);
     setTab((tabSets[found.role] || tabSets.admin)[0]);
     loadCalendarData({ force: true, role: found.role }).catch(() => {});
@@ -2396,7 +2471,7 @@ export default function App() {
   };
 
   const logout = () => {
-    localStorage.removeItem("williams_user");
+    localStorage.removeItem(AUTH_USER_KEY);
     setUser(null);
   };
 
@@ -3763,9 +3838,9 @@ function HouseTurnoversPanel({ rows, reportSync = [], saving, user, actions }) {
                 row={row}
                 saving={saving}
                 user={user}
-                completing={actions.isPending(`update:${TABLES.turnovers}:${row.id}`)}
+                completing={actions.isPending(`complete:${TABLES.turnovers}:${String(row.room || "").trim()}:${dateKey(row.date)}`)}
                 showComplete={view === "today"}
-                onComplete={() => actions.update(TABLES.turnovers, { ...row, status: "completed", completedAt: nowIso() })}
+                onComplete={() => actions.completeTurnoverRoom(row)}
                 actions={actions}
               />
             ))
